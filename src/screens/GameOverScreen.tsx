@@ -2,13 +2,31 @@ import { useEffect } from 'react';
 import type { UseGameReturn } from '@/game/useGame';
 import Button from '@/components/Button';
 import Panel from '@/components/Panel';
+import Leaderboard from '@/components/Leaderboard';
 
 interface GameOverScreenProps {
   game: UseGameReturn;
 }
 
 export default function GameOverScreen({ game }: GameOverScreenProps) {
-  const { score, mapsCleared, highScore, runStartHighScore, lifetimeStats, start, reset } = game;
+  const {
+    score,
+    mapsCleared,
+    highScore,
+    runStartHighScore,
+    lifetimeStats,
+    username,
+    scoresByLevel,
+    start,
+    reset,
+  } = game;
+
+  // Levels reached this run, highest first — the boards worth showing.
+  const reachedLevels = Object.keys(scoresByLevel)
+    .map(Number)
+    .filter((n) => Number.isInteger(n))
+    .sort((a, b) => b - a);
+  const boardLevels = reachedLevels.length > 0 ? reachedLevels : [1];
   // A genuine new record beats the high score the run started with — not a tie
   // (the reducer has already bumped `highScore` to the run's max by now).
   const isNewHighScore = score > 0 && score > runStartHighScore;
@@ -34,6 +52,12 @@ export default function GameOverScreen({ game }: GameOverScreenProps) {
       <h1 className="text-4xl font-bold tracking-widest uppercase text-[var(--color-timer-low)]">
         Game Over
       </h1>
+
+      {username && (
+        <p className="text-sm text-[var(--color-text-muted)] tracking-widest uppercase">
+          {username}
+        </p>
+      )}
 
       {isNewHighScore && (
         <p
@@ -61,6 +85,12 @@ export default function GameOverScreen({ game }: GameOverScreenProps) {
           </div>
         </dl>
       </Panel>
+
+      <Leaderboard
+        levels={boardLevels}
+        currentUsername={username}
+        scoresByLevel={scoresByLevel}
+      />
 
       <div className="flex flex-col items-center gap-3">
         <Button onClick={start} variant="primary">

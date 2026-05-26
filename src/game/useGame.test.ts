@@ -43,6 +43,9 @@ vi.mock('@/game/storage', () => ({
   setHighScore: vi.fn(),
   getStats: vi.fn(() => ({ totalMapsCleared: 0, totalGamesPlayed: 0 })),
   setStats: vi.fn(),
+  getUsername: vi.fn(() => ''),
+  setUsername: vi.fn(),
+  normalizeUsername: vi.fn((s: string) => s.trim()),
 }));
 
 // Import after mocks are set up

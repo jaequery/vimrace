@@ -49,8 +49,10 @@ VimRace is keyboard-only — play on a desktop or laptop.
 - **React 19** + **Vite** + **TypeScript** (strict)
 - **Tailwind CSS v4** (CSS-first theming via `@theme`)
 - **Vitest** + Testing Library for unit tests
-- No backend, no accounts, no network — 100% client-side. High score lives in
-  `localStorage`.
+- The game itself is 100% client-side; your personal best lives in
+  `localStorage`. An **optional** leaderboard (Vercel serverless functions +
+  Upstash Redis) records each player's best score per level — the game stays
+  fully playable if it's offline.
 
 ## Project layout
 
@@ -64,9 +66,15 @@ src/
 │  ├─ storage.ts      #   localStorage high score + lifetime stats
 │  ├─ useGame.ts      #   React state machine + drift-free rAF clock
 │  └─ useKeyboard.ts  #   scoped keydown → Motion handler
-├─ components/        # presentational pixel-art UI (Grid, Hud, KeyHints…)
+│  └─ leaderboard.ts  #   failure-tolerant client for the /api endpoints
+├─ components/        # presentational pixel-art UI (Grid, Hud, Leaderboard…)
 ├─ screens/           # Start / Play / GameOver containers
 └─ App.tsx            # routes by game status
+
+api/                  # Vercel serverless functions (the leaderboard backend)
+├─ _redis.ts          #   shared Upstash client + validation + ZSET helpers
+├─ score.ts           #   POST: record a player's best score per level
+└─ leaderboard.ts     #   GET:  top 10 per level
 ```
 
 ## Development
@@ -81,6 +89,28 @@ pnpm typecheck    # strict TypeScript check
 pnpm build        # production build to dist/
 pnpm preview      # preview the production build
 ```
+
+`pnpm dev` runs the Vite client only — the `/api` leaderboard functions are not
+served, so the leaderboard shows "unavailable" (the game still plays). To run
+the functions locally, use the Vercel CLI:
+
+```bash
+vercel link               # one-time: link to the Vercel project
+vercel env pull .env.local # pull Upstash credentials from the integration
+vercel dev                # serves the client + /api functions together
+```
+
+## Leaderboard
+
+Players enter a name on the start screen; on game over, their best score for
+each difficulty **level** reached is recorded. Storage is one Redis sorted set
+per level (`vimrace:lb:lvl:{N}`, member = username, score = best run-total at
+that level), written with `ZADD … GT` so an entry only ever moves up.
+
+Credentials come from the **Vercel ↔ Upstash** integration, which injects
+`KV_REST_API_URL` and `KV_REST_API_TOKEN` into the deployment automatically —
+no extra config needed in production. For local `vercel dev`, `vercel env pull`
+writes them to `.env.local` (gitignored).
 
 ## License
 

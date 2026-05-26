@@ -36,6 +36,10 @@ vi.mock('@/game/storage', () => ({
   setHighScore: vi.fn(),
   getStats: vi.fn(() => ({ totalMapsCleared: 0, totalGamesPlayed: 0 })),
   setStats: vi.fn(),
+  getUsername: vi.fn(() => ''),
+  setUsername: vi.fn(),
+  normalizeUsername: vi.fn((s: string) => s.trim()),
+  MAX_USERNAME_LEN: 16,
 }));
 
 import App from './App';

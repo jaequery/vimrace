@@ -3,9 +3,19 @@ import type { GameMap, GameStatus, MapResult, Motion, Pos } from '@/game/types';
 import { applyMotion, isGoalReached } from '@/game/vimEngine';
 import { generateMap } from '@/game/map';
 import { mapBonus, INITIAL_CLOCK_MS, levelForMapsCleared } from '@/game/scoring';
-import { getHighScore, setHighScore, getStats, setStats } from '@/game/storage';
+import {
+  getHighScore,
+  setHighScore,
+  getStats,
+  setStats,
+  getUsername,
+  setUsername as persistUsername,
+  normalizeUsername,
+} from '@/game/storage';
 import type { StoredStats } from '@/game/storage';
 import { useKeyboard } from '@/game/useKeyboard';
+import { submitScores } from '@/game/leaderboard';
+import type { ScoresByLevel } from '@/game/leaderboard';
 
 // ---------------------------------------------------------------------------
 // State shape
@@ -27,6 +37,10 @@ export interface GameState {
   runStartHighScore: number;
   /** lifetime totals across all sessions (persisted to localStorage) */
   lifetimeStats: StoredStats;
+  /** player handle for the leaderboard (persisted to localStorage) */
+  username: string;
+  /** best run-score reached at each level during the current run (level → score) */
+  scoresByLevel: ScoresByLevel;
 }
 
 // ---------------------------------------------------------------------------
@@ -38,7 +52,8 @@ type Action =
   | { type: 'APPLY_MOTION'; motion: Motion }
   | { type: 'TICK'; deltaMs: number }
   | { type: 'GAME_OVER' }
-  | { type: 'RESET' };
+  | { type: 'RESET' }
+  | { type: 'SET_USERNAME'; username: string };
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -64,6 +79,8 @@ function makeInitialState(): GameState {
     highScore,
     runStartHighScore: highScore,
     lifetimeStats: getStats(),
+    username: getUsername(),
+    scoresByLevel: {},
   };
 }
 
@@ -94,11 +111,18 @@ function reducer(state: GameState, action: Action): GameState {
           totalMapsCleared: state.lifetimeStats.totalMapsCleared,
           totalGamesPlayed: state.lifetimeStats.totalGamesPlayed + 1,
         },
+        username: state.username,
+        scoresByLevel: {},
       };
     }
 
     case 'RESET': {
-      return makeInitialState();
+      // Preserve the player's handle across a return-to-start.
+      return { ...makeInitialState(), username: state.username };
+    }
+
+    case 'SET_USERNAME': {
+      return { ...state, username: normalizeUsername(action.username) };
     }
 
     case 'APPLY_MOTION': {
@@ -133,6 +157,15 @@ function reducer(state: GameState, action: Action): GameState {
           totalGamesPlayed: state.lifetimeStats.totalGamesPlayed,
         };
 
+        // Record the run-total for the level of the map just cleared. Score
+        // only grows within a run, so the max across a level's maps is the
+        // total after its last clear — the player's "best at this level".
+        const clearedLevel = state.map.level;
+        const newScoresByLevel: ScoresByLevel = {
+          ...state.scoresByLevel,
+          [clearedLevel]: Math.max(state.scoresByLevel[clearedLevel] ?? 0, newScore),
+        };
+
         return {
           ...state,
           map: nextMap,
@@ -145,6 +178,7 @@ function reducer(state: GameState, action: Action): GameState {
           lastResult: result,
           highScore: newHighScore,
           lifetimeStats: newLifetimeStats,
+          scoresByLevel: newScoresByLevel,
         };
       }
 
@@ -171,11 +205,20 @@ function reducer(state: GameState, action: Action): GameState {
     case 'GAME_OVER': {
       if (state.status !== 'playing') return state;
       const newHighScore = Math.max(state.score, state.highScore);
+      // Credit the level the player died on with their final score, so the
+      // furthest level reached always appears on its board — even with no
+      // clears there (e.g. ran out of time on the first map of a new level).
+      const reachedLevel = state.map.level;
+      const newScoresByLevel: ScoresByLevel = {
+        ...state.scoresByLevel,
+        [reachedLevel]: Math.max(state.scoresByLevel[reachedLevel] ?? 0, state.score),
+      };
       return {
         ...state,
         status: 'gameover',
         timeLeftMs: 0,
         highScore: newHighScore,
+        scoresByLevel: newScoresByLevel,
       };
     }
 
@@ -201,8 +244,13 @@ export interface UseGameReturn {
   /** high score when this run began — compare final score against this to detect a new record */
   runStartHighScore: number;
   lifetimeStats: StoredStats;
+  /** player handle for the leaderboard */
+  username: string;
+  /** best run-score reached at each level during the current run (level → score) */
+  scoresByLevel: ScoresByLevel;
   start: () => void;
   reset: () => void;
+  setUsername: (username: string) => void;
 }
 
 export function useGame(): UseGameReturn {
@@ -281,6 +329,36 @@ export function useGame(): UseGameReturn {
   }, [lifetimeStats]);
 
   // -------------------------------------------------------------------------
+  // Persist the player's handle to localStorage whenever it changes
+  // -------------------------------------------------------------------------
+  const username = state.username;
+  useEffect(() => {
+    if (username) persistUsername(username);
+  }, [username]);
+
+  // -------------------------------------------------------------------------
+  // Submit per-level scores once per game-over episode (fire-and-forget).
+  // Refs read the latest values without re-firing the effect mid-run; the
+  // guard ensures exactly one submit per transition into 'gameover'.
+  // -------------------------------------------------------------------------
+  const submittedRef = useRef(false);
+  const usernameRef = useRef(username);
+  usernameRef.current = username;
+  const scoresByLevelRef = useRef(state.scoresByLevel);
+  scoresByLevelRef.current = state.scoresByLevel;
+
+  useEffect(() => {
+    if (state.status === 'gameover') {
+      if (!submittedRef.current) {
+        submittedRef.current = true;
+        void submitScores(usernameRef.current, scoresByLevelRef.current);
+      }
+    } else {
+      submittedRef.current = false;
+    }
+  }, [state.status]);
+
+  // -------------------------------------------------------------------------
   // Keyboard input — active only while playing
   // -------------------------------------------------------------------------
   const handleMotion = useCallback((motion: Motion) => {
@@ -300,6 +378,10 @@ export function useGame(): UseGameReturn {
     dispatch({ type: 'RESET' });
   }, []);
 
+  const setUsername = useCallback((value: string) => {
+    dispatch({ type: 'SET_USERNAME', username: value });
+  }, []);
+
   return {
     status: state.status,
     map: state.map,
@@ -312,7 +394,10 @@ export function useGame(): UseGameReturn {
     highScore: state.highScore,
     runStartHighScore: state.runStartHighScore,
     lifetimeStats: state.lifetimeStats,
+    username: state.username,
+    scoresByLevel: state.scoresByLevel,
     start,
     reset,
+    setUsername,
   };
 }
