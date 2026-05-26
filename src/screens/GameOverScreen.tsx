@@ -25,17 +25,17 @@ export default function GameOverScreen({ game }: GameOverScreenProps) {
 
   return (
     <div
-      className="flex flex-col items-center justify-center min-h-full gap-6 px-4 py-8"
+      className="flex flex-col items-center justify-center min-h-screen gap-6 px-4 py-8"
       role="main"
       aria-label="Game over screen"
     >
-      <h1 className="text-4xl font-bold tracking-widest uppercase text-red-400">
+      <h1 className="text-4xl font-bold tracking-widest uppercase text-[var(--color-timer-low)]">
         Game Over
       </h1>
 
       {isNewHighScore && (
         <p
-          className="text-yellow-400 font-bold text-xl animate-pulse"
+          className="text-[var(--color-goal)] font-bold text-xl animate-pulse"
           aria-live="assertive"
           role="status"
         >
@@ -47,7 +47,7 @@ export default function GameOverScreen({ game }: GameOverScreenProps) {
         <dl className="flex flex-col gap-3 text-center font-mono">
           <div>
             <dt className="text-xs text-[var(--color-text-muted)] uppercase tracking-widest">Final Score</dt>
-            <dd className="text-3xl font-bold text-yellow-400">{score.toLocaleString()}</dd>
+            <dd className="text-3xl font-bold text-[var(--color-goal)]">{score.toLocaleString()}</dd>
           </div>
           <div>
             <dt className="text-xs text-[var(--color-text-muted)] uppercase tracking-widest">Maps Cleared</dt>

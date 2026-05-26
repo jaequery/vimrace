@@ -27,7 +27,7 @@ export default function StartScreen({ game, reducedMotion }: StartScreenProps) {
 
   return (
     <div
-      className="flex flex-col items-center justify-center min-h-full gap-6 px-4 py-8"
+      className="flex flex-col items-center justify-center min-h-screen gap-6 px-4 py-8"
       role="main"
     >
       <h1 className="text-4xl font-bold tracking-widest uppercase" aria-label="VimRace">
@@ -40,7 +40,7 @@ export default function StartScreen({ game, reducedMotion }: StartScreenProps) {
       </p>
 
       {highScore > 0 && (
-        <p className="text-yellow-400 font-bold text-lg" aria-live="polite">
+        <p className="text-[var(--color-goal)] font-bold text-lg" aria-live="polite">
           High Score: {highScore.toLocaleString()}
         </p>
       )}

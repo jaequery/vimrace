@@ -54,18 +54,8 @@ export default function KeyHints() {
         'px-3 py-2',
       ].join(' ')}
     >
-      {/* Section label */}
-      <span
-        className={[
-          'block mb-2',
-          'font-["Press_Start_2P"] text-[7px] uppercase tracking-widest',
-          'text-[var(--color-accent)]',
-        ].join(' ')}
-        aria-hidden="true"
-      >
-        Controls
-      </span>
-
+      {/* No heading here — the surrounding screen supplies the section title
+          (e.g. "Controls" on Start, "Vim Motions" on Play) to avoid duplicate labels. */}
       <ul
         role="list"
         className="flex flex-wrap gap-x-4 gap-y-1.5"

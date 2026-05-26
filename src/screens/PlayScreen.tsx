@@ -13,7 +13,7 @@ export default function PlayScreen({ game, reducedMotion }: PlayScreenProps) {
 
   return (
     <div
-      className="flex flex-col items-center min-h-full gap-4"
+      className="flex flex-col items-center min-h-screen gap-4"
       role="main"
       aria-label="VimRace — playing"
     >
@@ -25,7 +25,7 @@ export default function PlayScreen({ game, reducedMotion }: PlayScreenProps) {
         lastResult={lastResult}
       />
 
-      <div className="flex-1 flex items-center justify-center px-4">
+      <div className="w-full flex-1 flex items-center justify-center px-4">
         <Grid map={map} cursor={cursor} reducedMotion={reducedMotion} />
       </div>
 

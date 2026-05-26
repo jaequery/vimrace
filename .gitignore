@@ -24,3 +24,4 @@ pnpm-debug.log*
 
 # Supabuild internal (worktree-local; never committed)
 .supabuild/
+.playwright-cli/
