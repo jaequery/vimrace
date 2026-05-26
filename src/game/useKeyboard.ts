@@ -13,8 +13,6 @@ const KEY_TO_MOTION: Record<string, Motion> = {
   '0': '0',
   $: '$',
   G: 'G', // Shift+g
-  PageDown: 'pgdn',
-  PageUp: 'pgup',
 };
 
 /** How long (ms) a leading `g` waits for its partner before lapsing. */
@@ -24,13 +22,15 @@ const G_SEQUENCE_TIMEOUT = 700;
  * Attaches a global keydown listener while `active` is true.
  *
  * Maps raw KeyboardEvent.key values to a Motion and calls `onMotion`:
- *   - single keys (h/j/k/l/w/b/e/0/$/G) and PageUp/PageDown map directly;
+ *   - single keys (h/j/k/l/w/b/e/0/$/G) map directly;
+ *   - `Ctrl-d` / `Ctrl-u` fire the half-page leaps (pgdn / pgup), as in Vim;
  *   - `gg` is a two-press sequence — a leading `g` arms a short window, and a
  *     second `g` within it fires `gg`; any other key (or the timeout) cancels.
  *
- * Prevents default only for recognized game keys (so PageUp/PageDown don't
- * scroll the page, etc). Ignores events with Ctrl/Meta/Alt held so browser and
- * OS shortcuts still work. Cleans up on unmount or when `active` changes.
+ * Prevents default only for recognized game keys (so `Ctrl-d`/`Ctrl-u` don't
+ * trigger the browser and PageUp/PageDown-style scroll is avoided). Other
+ * Ctrl/Meta/Alt combos are ignored so browser and OS shortcuts still work.
+ * Cleans up on unmount or when `active` changes.
  */
 export function useKeyboard(active: boolean, onMotion: (motion: Motion) => void): void {
   useEffect(() => {
@@ -49,8 +49,22 @@ export function useKeyboard(active: boolean, onMotion: (motion: Motion) => void)
     }
 
     function handleKeyDown(e: KeyboardEvent): void {
-      // Ignore modified key combos (browser / OS shortcuts).
-      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      // Ctrl-d / Ctrl-u → half-page leaps (Vim's half-screen scroll). Only
+      // plain Ctrl (no Meta/Alt). preventDefault stops the browser's bookmark
+      // (Ctrl-d) / view-source (Ctrl-u) while the game is active.
+      if (e.ctrlKey && !e.metaKey && !e.altKey) {
+        const ck = e.key.toLowerCase();
+        if (ck === 'd' || ck === 'u') {
+          e.preventDefault();
+          cancelPendingG();
+          onMotion(ck === 'd' ? 'pgdn' : 'pgup');
+        }
+        // Swallow every other Ctrl combo without acting on it.
+        return;
+      }
+
+      // Ignore remaining modified key combos (Meta / Alt).
+      if (e.metaKey || e.altKey) return;
 
       const key = e.key;
 

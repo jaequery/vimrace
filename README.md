@@ -23,10 +23,10 @@ fast, replayable way to build Vim muscle memory.
    | `$` | rightmost open cell of the row | jumps over walls |
    | `gg` | top of the column | jumps over walls |
    | `G` | bottom of the column | jumps over walls |
-   | `PageUp` / `PageDown` | jump ~half the maze up / down | jumps over walls |
+   | `Ctrl-u` / `Ctrl-d` | jump ~half the maze up / down | jumps over walls |
 
    The row-wise leaps (`w` `b` `e` `0` `$`) move you across a row; the
-   column-wise leaps (`gg` `G` `PageUp` `PageDown`) move you down a column —
+   column-wise leaps (`gg` `G` `Ctrl-u` `Ctrl-d`) move you down a column —
    together they let you cross the whole maze without ever stepping cell by
    cell.
 

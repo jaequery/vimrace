@@ -48,7 +48,7 @@ export interface GameMap {
  * `gg`/`G`/`pgup`/`pgdn` are vertical "leap" motions — the column-wise
  * complement to the row-wise leaps `0`/`$`/`w`/`b`/`e`. They hop over walls and
  * land on floor, just along a column instead of a row. (`gg` is keyed as the
- * two-press `g g` sequence; `pgup`/`pgdn` are the PageUp/PageDown keys.)
+ * two-press `g g` sequence; `pgup`/`pgdn` are Vim's half-page `Ctrl-u`/`Ctrl-d`.)
  */
 export type Motion =
   | 'h' | 'j' | 'k' | 'l'
@@ -88,8 +88,8 @@ export const MOTION_KEYCAP: Record<Motion, string> = {
   $: '$',
   gg: 'gg',
   G: 'G',
-  pgup: 'PgUp',
-  pgdn: 'PgDn',
+  pgup: 'C-u',
+  pgdn: 'C-d',
 };
 
 /**
@@ -113,8 +113,8 @@ export const MOTION_HELP: Record<Motion, string> = {
   $: 'row end',
   gg: 'hop to top',
   G: 'hop to bottom',
-  pgup: 'page up',
-  pgdn: 'page down',
+  pgup: 'half page up',
+  pgdn: 'half page dn',
 };
 
 export type Medal = 'gold' | 'silver' | 'bronze' | 'none';
