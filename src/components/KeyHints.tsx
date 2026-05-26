@@ -1,31 +1,34 @@
 import { MOTIONS, MOTION_HELP, type Motion } from '@/game/types';
-import Panel from './Panel';
 
-/** Single keycap item in the cheat-sheet. */
-function Keycap({ motion }: { motion: Motion }) {
-  const label = motion === '$' ? '$' : motion;
+/** Single keycap chip — compact enough for a persistent inline legend. */
+function KeyChip({ motion }: { motion: Motion }) {
+  const label = motion;
   const help = MOTION_HELP[motion];
 
   return (
-    <li className="flex items-center gap-2 min-w-0">
-      {/* The key itself */}
-      <span
-        aria-hidden="true"
+    <li
+      className="flex items-center gap-1.5"
+      title={help}
+    >
+      {/* Keycap badge */}
+      <kbd
         className={[
           'shrink-0',
           'inline-flex items-center justify-center',
-          'w-8 h-8',
-          'font-["Press_Start_2P"] text-[10px] leading-none',
+          'w-6 h-6',
+          'font-["Press_Start_2P"] text-[8px] leading-none',
           'bg-[var(--color-arcade-surface)] text-[var(--color-cursor)]',
-          'border-[3px] border-[var(--color-cursor)]',
-          'shadow-[0_4px_0_0_#000]',
+          'border-2 border-[var(--color-cursor)]',
+          'shadow-[0_3px_0_0_#000]',
+          'rounded-[2px]',
         ].join(' ')}
+        aria-hidden="true"
       >
         {label}
-      </span>
+      </kbd>
 
-      {/* Description */}
-      <span className="text-[11px] text-[var(--color-text-primary)] font-mono truncate">
+      {/* Short description — hidden on very small containers via truncate */}
+      <span className="text-[10px] text-[var(--color-text-muted)] font-mono leading-none truncate max-w-[5rem]">
         {help}
       </span>
     </li>
@@ -33,23 +36,45 @@ function Keycap({ motion }: { motion: Motion }) {
 }
 
 /**
- * On-screen motion cheat-sheet.
+ * Persistent inline motion legend.
  *
- * Reads MOTIONS and MOTION_HELP directly from `@/game/types` — no props needed.
+ * Designed to sit below the grid without dominating the screen.
+ * Renders as a compact flex-wrap strip of keycap chips.
+ *
  * Contract: `<KeyHints />` — no required props.
  */
 export default function KeyHints() {
   return (
-    <Panel title="Controls" aria-label="Vim motion cheat-sheet">
+    <nav
+      aria-label="Vim motion cheat-sheet"
+      className={[
+        'w-full',
+        'bg-[var(--color-arcade-panel)]',
+        'border-t-2 border-[var(--color-accent)]',
+        'px-3 py-2',
+      ].join(' ')}
+    >
+      {/* Section label */}
+      <span
+        className={[
+          'block mb-2',
+          'font-["Press_Start_2P"] text-[7px] uppercase tracking-widest',
+          'text-[var(--color-accent)]',
+        ].join(' ')}
+        aria-hidden="true"
+      >
+        Controls
+      </span>
+
       <ul
         role="list"
-        className="grid grid-cols-[1fr_1fr] gap-x-4 gap-y-2"
+        className="flex flex-wrap gap-x-4 gap-y-1.5"
         aria-label="Vim motions"
       >
         {MOTIONS.map((m) => (
-          <Keycap key={m} motion={m} />
+          <KeyChip key={m} motion={m} />
         ))}
       </ul>
-    </Panel>
+    </nav>
   );
 }

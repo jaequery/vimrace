@@ -1,4 +1,5 @@
 import clsx from 'clsx';
+import { useEffect, useRef, useState } from 'react';
 import { type GameMap, type Pos } from '@/game/types';
 
 interface GridProps {
@@ -110,17 +111,59 @@ function Cell({ filled, isCursor, isGoal, reducedMotion }: CellProps) {
  * perfect square. On very large maps (cols > 24) the tile shrinks to ensure
  * the grid fits within a 90 vw container without horizontal scroll.
  */
+/** Derive tile size from container dimensions, clamped to [16, 36] px. */
+function computeTileSize(
+  containerW: number,
+  containerH: number,
+  cols: number,
+  rows: number,
+): number {
+  // Subtract border gaps (2 px between each tile) before dividing.
+  const tileFromW = Math.floor((containerW - cols * 2) / cols);
+  const tileFromH = Math.floor((containerH - rows * 2) / rows);
+  // Must fit BOTH dimensions — take the smaller of the two, then clamp.
+  return Math.min(36, Math.max(16, Math.min(tileFromW, tileFromH)));
+}
+
 export default function Grid({ map, cursor, reducedMotion = false }: GridProps) {
   const { rows, cols, grid, goal } = map;
 
-  // Keep tiles square and bounded to ~90 vw / 70 vh.
-  // We use a CSS custom property override so Tailwind doesn't need
-  // to know these dimensions at compile time.
-  const maxVw = typeof window !== 'undefined' ? window.innerWidth * 0.9 : 800;
-  const maxVh = typeof window !== 'undefined' ? window.innerHeight * 0.65 : 560;
-  const tileFromVw = Math.floor((maxVw - cols * 2) / cols); // subtract gap
-  const tileFromVh = Math.floor((maxVh - rows * 2) / rows);
-  const tileSize = Math.min(36, Math.max(16, tileFromVw, tileFromVh));
+  // Internal layout state — tracks the container element's size so tiles
+  // re-fit reactively on every viewport resize.  This is pure presentation
+  // state and deliberately stays inside Grid.
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  const [containerSize, setContainerSize] = useState<{ w: number; h: number }>(() => {
+    if (typeof window === 'undefined') return { w: 800, h: 560 };
+    return { w: window.innerWidth * 0.9, h: window.innerHeight * 0.65 };
+  });
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !containerRef.current) return;
+
+    // Use ResizeObserver on the container's *parent* element so we know how
+    // much space is actually available before we render the grid.
+    const target = containerRef.current.parentElement ?? containerRef.current;
+
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (!entry) return;
+      const { width, height } = entry.contentRect;
+      setContainerSize({ w: width, h: height });
+    });
+
+    observer.observe(target);
+
+    // Seed the size immediately from current layout.
+    const rect = target.getBoundingClientRect();
+    if (rect.width > 0) {
+      setContainerSize({ w: rect.width, h: rect.height });
+    }
+
+    return () => observer.disconnect();
+  }, []);
+
+  const tileSize = computeTileSize(containerSize.w, containerSize.h, cols, rows);
 
   const gridStyle: React.CSSProperties = {
     display: 'grid',
@@ -131,6 +174,7 @@ export default function Grid({ map, cursor, reducedMotion = false }: GridProps) 
 
   return (
     <div
+      ref={containerRef}
       role="grid"
       aria-label={`VimRace grid ${rows} rows by ${cols} columns`}
       aria-rowcount={rows}
