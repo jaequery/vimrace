@@ -23,6 +23,8 @@ export interface GameState {
   maxTimeMs: number;
   lastResult: MapResult | null;
   highScore: number;
+  /** high score as it stood when the current run began — used to detect a *new* record (not a tie) */
+  runStartHighScore: number;
   /** lifetime totals across all sessions (persisted to localStorage) */
   lifetimeStats: StoredStats;
 }
@@ -48,6 +50,7 @@ function makeInitialMap(): GameMap {
 
 function makeInitialState(): GameState {
   const map = makeInitialMap();
+  const highScore = getHighScore();
   return {
     status: 'idle',
     map,
@@ -58,7 +61,8 @@ function makeInitialState(): GameState {
     timeLeftMs: INITIAL_CLOCK_MS,
     maxTimeMs: INITIAL_CLOCK_MS,
     lastResult: null,
-    highScore: getHighScore(),
+    highScore,
+    runStartHighScore: highScore,
     lifetimeStats: getStats(),
   };
 }
@@ -71,20 +75,25 @@ function reducer(state: GameState, action: Action): GameState {
   switch (action.type) {
     case 'START': {
       if (state.status === 'playing') return state;
+      // Build the playing state directly — no I/O and no throwaway generateMap
+      // (calling makeInitialState() here would double-generate under StrictMode).
       const map = generateMap({ level: 1 });
-      const freshStats = getStats();
-      const startedStats: StoredStats = {
-        totalMapsCleared: freshStats.totalMapsCleared,
-        totalGamesPlayed: freshStats.totalGamesPlayed + 1,
-      };
       return {
-        ...makeInitialState(),
         status: 'playing',
         map,
         cursor: { ...map.start },
+        score: 0,
+        mapsCleared: 0,
+        keystrokesUsed: 0,
         timeLeftMs: INITIAL_CLOCK_MS,
         maxTimeMs: INITIAL_CLOCK_MS,
-        lifetimeStats: startedStats,
+        lastResult: null,
+        highScore: state.highScore,
+        runStartHighScore: state.highScore,
+        lifetimeStats: {
+          totalMapsCleared: state.lifetimeStats.totalMapsCleared,
+          totalGamesPlayed: state.lifetimeStats.totalGamesPlayed + 1,
+        },
       };
     }
 
@@ -189,6 +198,8 @@ export interface UseGameReturn {
   maxTimeMs: number;
   lastResult: MapResult | null;
   highScore: number;
+  /** high score when this run began — compare final score against this to detect a new record */
+  runStartHighScore: number;
   lifetimeStats: StoredStats;
   start: () => void;
   reset: () => void;
@@ -224,7 +235,11 @@ export function useGame(): UseGameReturn {
       const delta = now - lastTimeRef.current;
       lastTimeRef.current = now;
 
-      dispatch({ type: 'TICK', deltaMs: delta });
+      // Skip the dispatch once time has run out — the GAME_OVER effect handles
+      // the transition; this avoids a couple of redundant TICKs per game over.
+      if (timeLeftMsRef.current > 0) {
+        dispatch({ type: 'TICK', deltaMs: delta });
+      }
 
       rafRef.current = requestAnimationFrame(tick);
     }
@@ -295,6 +310,7 @@ export function useGame(): UseGameReturn {
     maxTimeMs: state.maxTimeMs,
     lastResult: state.lastResult,
     highScore: state.highScore,
+    runStartHighScore: state.runStartHighScore,
     lifetimeStats: state.lifetimeStats,
     start,
     reset,

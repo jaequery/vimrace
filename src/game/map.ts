@@ -140,6 +140,8 @@ export function parKeystrokes(map: GameMap): number {
   if (isGoalReached(map, map.start)) return 0;
 
   const visited = new Set<number>();
+  // FIFO queue. `shift()` is O(n) but the state space is bounded by the grid
+  // (≤ MAX_ROWS × MAX_COLS cells), so this is comfortably fast in practice.
   const queue: [Pos, number][] = [[map.start, 0]];
   visited.add(posKey(map.start));
 

@@ -17,6 +17,16 @@ export default function PlayScreen({ game, reducedMotion }: PlayScreenProps) {
       role="main"
       aria-label="VimRace — playing"
     >
+      {/* Brief white flash on each map clear — remounts (re-fires) on every
+          increment of mapsCleared. Auto-disabled under prefers-reduced-motion. */}
+      {mapsCleared > 0 && (
+        <div
+          key={mapsCleared}
+          aria-hidden="true"
+          className="pointer-events-none fixed inset-0 z-40 animate-screen-flash"
+        />
+      )}
+
       <Hud
         score={score}
         mapsCleared={mapsCleared}

@@ -162,18 +162,6 @@ body {
   50%       { opacity: 0.5; }
 }
 
-/* Keycap press feedback */
-@keyframes keycap-press {
-  0%, 100% { transform: translateY(0); box-shadow: 0 4px 0 #000; }
-  50%       { transform: translateY(2px); box-shadow: 0 2px 0 #000; }
-}
-
-/* Scanline shimmer (subtle CRT feel on panels) */
-@keyframes scanline {
-  0%   { background-position: 0 0; }
-  100% { background-position: 0 4px; }
-}
-
 /* ============================================================
    Animation utility classes
    ============================================================ */

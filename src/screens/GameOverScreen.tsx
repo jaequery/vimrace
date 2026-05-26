@@ -8,8 +8,10 @@ interface GameOverScreenProps {
 }
 
 export default function GameOverScreen({ game }: GameOverScreenProps) {
-  const { score, mapsCleared, highScore, lifetimeStats, start, reset } = game;
-  const isNewHighScore = score > 0 && score >= highScore;
+  const { score, mapsCleared, highScore, runStartHighScore, lifetimeStats, start, reset } = game;
+  // A genuine new record beats the high score the run started with — not a tie
+  // (the reducer has already bumped `highScore` to the run's max by now).
+  const isNewHighScore = score > 0 && score > runStartHighScore;
 
   // Enter or Space also restarts
   useEffect(() => {
@@ -25,7 +27,7 @@ export default function GameOverScreen({ game }: GameOverScreenProps) {
 
   return (
     <div
-      className="flex flex-col items-center justify-center min-h-screen gap-6 px-4 py-8"
+      className="flex flex-col items-center justify-center min-h-screen gap-6 px-4 py-8 animate-screen-shake"
       role="main"
       aria-label="Game over screen"
     >
@@ -35,7 +37,7 @@ export default function GameOverScreen({ game }: GameOverScreenProps) {
 
       {isNewHighScore && (
         <p
-          className="text-[var(--color-goal)] font-bold text-xl animate-pulse"
+          className="text-[var(--color-goal)] font-bold text-xl motion-safe:animate-pulse"
           aria-live="assertive"
           role="status"
         >

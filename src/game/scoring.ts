@@ -9,7 +9,7 @@
  *
  * Points formula:
  *   base   = BASE_POINTS_PER_MAP * level
- *   eff    = efficiency bonus: max(0, BASE_POINTS_PER_MAP * (1 - ratio + 1)) * level
+ *   eff    = efficiency bonus: max(0, BASE_POINTS_PER_MAP * (2 - ratio)) * level
  *   speed  = floor(timeLeftMs / 1000) * SPEED_POINTS_PER_SECOND
  *   total  = base + eff + speed   (always ≥ base for any positive used)
  *
