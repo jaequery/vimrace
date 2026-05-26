@@ -1,8 +1,8 @@
-import { MOTIONS, MOTION_HELP, type Motion } from '@/game/types';
+import { MOTIONS, MOTION_HELP, MOTION_KEYCAP, type Motion } from '@/game/types';
 
 /** Single keycap chip — compact enough for a persistent inline legend. */
 function KeyChip({ motion }: { motion: Motion }) {
-  const label = motion;
+  const label = MOTION_KEYCAP[motion];
   const help = MOTION_HELP[motion];
 
   return (
@@ -15,7 +15,7 @@ function KeyChip({ motion }: { motion: Motion }) {
         className={[
           'shrink-0',
           'inline-flex items-center justify-center',
-          'w-6 h-6',
+          'min-w-6 h-6 px-1',
           'font-["Press_Start_2P"] text-[8px] leading-none',
           'bg-[var(--color-arcade-surface)] text-[var(--color-cursor)]',
           'border-2 border-[var(--color-cursor)]',

@@ -21,6 +21,14 @@ fast, replayable way to build Vim muscle memory.
    | `e` | hop to the end of a corridor | jumps over walls |
    | `0` | leftmost open cell of the row | jumps over walls |
    | `$` | rightmost open cell of the row | jumps over walls |
+   | `gg` | top of the column | jumps over walls |
+   | `G` | bottom of the column | jumps over walls |
+   | `PageUp` / `PageDown` | jump ~half the maze up / down | jumps over walls |
+
+   The row-wise leaps (`w` `b` `e` `0` `$`) move you across a row; the
+   column-wise leaps (`gg` `G` `PageUp` `PageDown`) move you down a column —
+   together they let you cross the whole maze without ever stepping cell by
+   cell.
 
 4. Reach the flag to **bank score + bonus time** and jump to the next maze.
 5. **Fewer keystrokes = bigger bonus** (gold / silver / bronze medals reward

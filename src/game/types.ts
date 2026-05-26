@@ -42,8 +42,18 @@ export interface GameMap {
   par: number;
 }
 
-/** The supported Vim motions. */
-export type Motion = 'h' | 'j' | 'k' | 'l' | 'w' | 'b' | 'e' | '0' | '$';
+/**
+ * The supported Vim motions.
+ *
+ * `gg`/`G`/`pgup`/`pgdn` are vertical "leap" motions — the column-wise
+ * complement to the row-wise leaps `0`/`$`/`w`/`b`/`e`. They hop over walls and
+ * land on floor, just along a column instead of a row. (`gg` is keyed as the
+ * two-press `g g` sequence; `pgup`/`pgdn` are the PageUp/PageDown keys.)
+ */
+export type Motion =
+  | 'h' | 'j' | 'k' | 'l'
+  | 'w' | 'b' | 'e' | '0' | '$'
+  | 'gg' | 'G' | 'pgup' | 'pgdn';
 
 /** All supported motions, in cheat-sheet display order. */
 export const MOTIONS: readonly Motion[] = [
@@ -56,7 +66,31 @@ export const MOTIONS: readonly Motion[] = [
   'e',
   '0',
   '$',
+  'gg',
+  'G',
+  'pgup',
+  'pgdn',
 ] as const;
+
+/**
+ * Keycap text for the on-screen cheat-sheet. Most motions render as their own
+ * id, but the PageUp/PageDown keys need friendlier labels.
+ */
+export const MOTION_KEYCAP: Record<Motion, string> = {
+  h: 'h',
+  j: 'j',
+  k: 'k',
+  l: 'l',
+  w: 'w',
+  b: 'b',
+  e: 'e',
+  '0': '0',
+  $: '$',
+  gg: 'gg',
+  G: 'G',
+  pgup: 'PgUp',
+  pgdn: 'PgDn',
+};
 
 /**
  * Short, human-readable description of each motion for the on-screen
@@ -77,6 +111,10 @@ export const MOTION_HELP: Record<Motion, string> = {
   e: 'hop to end',
   '0': 'row start',
   $: 'row end',
+  gg: 'hop to top',
+  G: 'hop to bottom',
+  pgup: 'page up',
+  pgdn: 'page down',
 };
 
 export type Medal = 'gold' | 'silver' | 'bronze' | 'none';

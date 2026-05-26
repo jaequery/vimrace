@@ -28,8 +28,15 @@
  *   0  Jump to the leftmost floor cell of the row (hopping any leading walls).
  *   $  Jump to the rightmost floor cell of the row (hopping any trailing walls).
  *
- * If a row has no floor at all (degenerate), leap motions leave the cursor
- * where it is rather than inventing an illegal position.
+ * The vertical leaps are the column-wise complement — they hop over walls along
+ * the current column and land on the floor cell nearest a target row:
+ *   gg  Jump to the TOPMOST floor cell of the column.
+ *   G   Jump to the BOTTOMMOST floor cell of the column.
+ *   pgdn  Jump down ~half the grid; land on the column's floor nearest there.
+ *   pgup  Jump up   ~half the grid; land on the column's floor nearest there.
+ *
+ * If a row (or column) has no floor at all (degenerate), leap motions leave the
+ * cursor where it is rather than inventing an illegal position.
  */
 
 import type { GameMap, Motion, Pos } from '@/game/types';
@@ -155,6 +162,57 @@ function moveE(map: GameMap, pos: Pos): Pos {
 }
 
 // ---------------------------------------------------------------------------
+// Vertical leap motions (hop over walls along the column, land on floor)
+// ---------------------------------------------------------------------------
+
+/**
+ * The floor cell in column `col` whose row is closest to `targetRow`. Ties
+ * favor the upper (smaller-row) cell. Returns `pos` unchanged if the column
+ * has no floor at all (degenerate; the cursor never legally sits there).
+ */
+function nearestFloorInColumn(map: GameMap, pos: Pos, col: number, targetRow: number): Pos {
+  let bestRow: number | null = null;
+  let bestDist = Infinity;
+  for (let r = 0; r < map.rows; r++) {
+    if (map.grid[r][col] === false) {
+      const dist = Math.abs(r - targetRow);
+      if (dist < bestDist) {
+        bestDist = dist;
+        bestRow = r;
+      }
+    }
+  }
+  return bestRow === null ? pos : { row: bestRow, col };
+}
+
+/** A "page" is half the grid height (at least one row). */
+function pageRows(map: GameMap): number {
+  return Math.max(1, Math.floor(map.rows / 2));
+}
+
+/** gg — topmost floor cell of the column. */
+function moveGG(map: GameMap, pos: Pos): Pos {
+  return nearestFloorInColumn(map, pos, pos.col, 0);
+}
+
+/** G — bottommost floor cell of the column. */
+function moveG(map: GameMap, pos: Pos): Pos {
+  return nearestFloorInColumn(map, pos, pos.col, map.rows - 1);
+}
+
+/** pgdn — jump down ~one page, landing on the column's nearest floor. */
+function movePgDn(map: GameMap, pos: Pos): Pos {
+  const target = Math.min(map.rows - 1, pos.row + pageRows(map));
+  return nearestFloorInColumn(map, pos, pos.col, target);
+}
+
+/** pgup — jump up ~one page, landing on the column's nearest floor. */
+function movePgUp(map: GameMap, pos: Pos): Pos {
+  const target = Math.max(0, pos.row - pageRows(map));
+  return nearestFloorInColumn(map, pos, pos.col, target);
+}
+
+// ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 
@@ -173,6 +231,10 @@ export function applyMotion(map: GameMap, pos: Pos, motion: Motion): Pos {
     case 'w':  return moveW(map, pos);
     case 'b':  return moveB(map, pos);
     case 'e':  return moveE(map, pos);
+    case 'gg': return moveGG(map, pos);
+    case 'G':  return moveG(map, pos);
+    case 'pgdn': return movePgDn(map, pos);
+    case 'pgup': return movePgUp(map, pos);
   }
 }
 

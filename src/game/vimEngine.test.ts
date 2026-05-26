@@ -222,12 +222,90 @@ describe('e (hop to end)', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Vertical leaps — gg / G / pgup / pgdn hop over walls along the column.
+//
+//       c0 c1 c2
+// row0:  F  F  F
+// row1:  T  F  F
+// row2:  T  T  F
+// row3:  F  F  F
+// row4:  F  F  F
+//
+// col 0 floor rows: {0, 3, 4}   col 2 floor rows: {0,1,2,3,4}
+// A "page" here = floor(5/2) = 2 rows.
+// ---------------------------------------------------------------------------
+
+const VMAZE = makeMap([
+  [F, F, F],
+  [T, F, F],
+  [T, T, F],
+  [F, F, F],
+  [F, F, F],
+]);
+
+describe('gg (hop to top of column)', () => {
+  it('jumps to the topmost floor cell, hopping walls above', () => {
+    // col 0 from row 3: floors {0,3,4}, topmost = 0 (rows 1,2 are walls)
+    expect(applyMotion(VMAZE, pos(3, 0), 'gg')).toEqual(pos(0, 0));
+  });
+  it('jumps to row 0 in a fully open column', () => {
+    expect(applyMotion(VMAZE, pos(4, 2), 'gg')).toEqual(pos(0, 2));
+  });
+  it('stays when already at the topmost floor cell', () => {
+    expect(applyMotion(VMAZE, pos(0, 0), 'gg')).toEqual(pos(0, 0));
+  });
+  it('does not change column', () => {
+    expect(applyMotion(VMAZE, pos(3, 0), 'gg').col).toBe(0);
+  });
+});
+
+describe('G (hop to bottom of column)', () => {
+  it('jumps to the bottommost floor cell', () => {
+    expect(applyMotion(VMAZE, pos(0, 0), 'G')).toEqual(pos(4, 0));
+  });
+  it('jumps to the last row in a fully open column', () => {
+    expect(applyMotion(VMAZE, pos(0, 2), 'G')).toEqual(pos(4, 2));
+  });
+  it('stays when already at the bottommost floor cell', () => {
+    expect(applyMotion(VMAZE, pos(4, 2), 'G')).toEqual(pos(4, 2));
+  });
+});
+
+describe('pgdn (page down)', () => {
+  it('jumps ~half the grid down in an open column', () => {
+    // from row 0, target = min(4, 0+2) = 2 → (2,2)
+    expect(applyMotion(VMAZE, pos(0, 2), 'pgdn')).toEqual(pos(2, 2));
+  });
+  it('lands on the nearest column floor when the target is a wall', () => {
+    // from (0,0): target row 2 is a wall in col 0; nearest floor {0,3,4} = row 3
+    expect(applyMotion(VMAZE, pos(0, 0), 'pgdn')).toEqual(pos(3, 0));
+  });
+  it('does not move past the bottom edge', () => {
+    expect(applyMotion(VMAZE, pos(4, 2), 'pgdn')).toEqual(pos(4, 2));
+  });
+});
+
+describe('pgup (page up)', () => {
+  it('jumps ~half the grid up in an open column', () => {
+    // from row 4, target = max(0, 4-2) = 2 → (2,2)
+    expect(applyMotion(VMAZE, pos(4, 2), 'pgup')).toEqual(pos(2, 2));
+  });
+  it('lands on the nearest column floor when the target is a wall', () => {
+    // from (4,0): target row 2 is a wall in col 0; nearest floor {0,3,4} = row 3
+    expect(applyMotion(VMAZE, pos(4, 0), 'pgup')).toEqual(pos(3, 0));
+  });
+  it('does not move past the top edge', () => {
+    expect(applyMotion(VMAZE, pos(0, 2), 'pgup')).toEqual(pos(0, 2));
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Edge: single floor cell (1×1)
 // ---------------------------------------------------------------------------
 describe('single floor-cell map', () => {
   const TINY = makeMap([[F]]);
 
-  for (const m of ['h', 'j', 'k', 'l', 'w', 'b', 'e', '0', '$'] as const) {
+  for (const m of ['h', 'j', 'k', 'l', 'w', 'b', 'e', '0', '$', 'gg', 'G', 'pgup', 'pgdn'] as const) {
     it(`${m} stays at (0,0)`, () =>
       expect(applyMotion(TINY, pos(0, 0), m)).toEqual(pos(0, 0)));
   }
@@ -240,7 +318,7 @@ describe('single floor-cell map', () => {
 describe('fully walled row', () => {
   const WALLED = makeMap([[T, T, T, T]]);
 
-  for (const m of ['w', 'b', 'e', '0', '$'] as const) {
+  for (const m of ['w', 'b', 'e', '0', '$', 'gg', 'G', 'pgup', 'pgdn'] as const) {
     it(`${m} leaves the cursor in place`, () =>
       expect(applyMotion(WALLED, pos(0, 2), m)).toEqual(pos(0, 2)));
   }

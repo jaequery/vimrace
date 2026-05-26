@@ -121,15 +121,19 @@ describe('parKeystrokes solvability', () => {
     }
   });
 
-  it('increases monotonically with level on average (smoke test)', () => {
-    // Average par over several seeds should grow with level.
-    const avg = (level: number) => {
-      let total = 0;
-      const N = 5;
-      for (let s = 0; s < N; s++) total += generateMap({ level, seed: s }).par;
-      return total / N;
-    };
-    expect(avg(5)).toBeGreaterThan(avg(1));
+  it('stays small and positive at every level (leaps keep optimal paths short)', () => {
+    // The wall-hopping leap motions (row-wise w/b/e/0/$ and column-wise
+    // gg/G/PageUp/PageDown) let an expert cross any maze in a handful of
+    // moves, so par no longer grows with level — it stays a small, finite,
+    // positive number. The difficulty ramp lives in grid SIZE (see the
+    // "grid size scales with level" suite) and the clock, not in par.
+    for (const level of [1, 3, 5, 8, 12]) {
+      for (let s = 0; s < 8; s++) {
+        const par = generateMap({ level, seed: s }).par;
+        expect(par).toBeGreaterThan(0);
+        expect(par).toBeLessThanOrEqual(12);
+      }
+    }
   });
 });
 
