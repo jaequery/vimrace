@@ -1,13 +1,85 @@
 @import 'tailwindcss';
+@import '@fontsource/press-start-2p';
 
-/*
- * Base theme placeholders. The UI Designer owns the full pixel-art arcade
- * theme — expand the @theme block with the real palette, fonts, and tokens.
- */
+/* ============================================================
+   VimRace — Pixel-Art Arcade Theme
+   All motion is gated by prefers-reduced-motion.
+   ============================================================ */
+
 @theme {
-  --color-bg: #0b0e14;
-  --color-fg: #e6edf3;
+  /* --- Base palette --- */
+  --color-bg:            #0b0e14;
+  --color-fg:            #e6edf3;
+
+  /* --- Arcade deep background layers --- */
+  --color-arcade-bg:     #0b0e14;
+  --color-arcade-surface:#131820;
+  --color-arcade-panel:  #1a2130;
+
+  /* --- Grid cells --- */
+  --color-tile-filled:   #1e3a5f;
+  --color-tile-floor:    #0f1923;
+  --color-tile-border:   #0a1520;
+
+  /* --- Cursor (neon cyan sprite) --- */
+  --color-cursor:        #00f5ff;
+  --color-cursor-glow:   #00f5ff40;
+
+  /* --- Goal flag (electric gold) --- */
+  --color-goal:          #ffd700;
+  --color-goal-glow:     #ffd70050;
+
+  /* --- Medals --- */
+  --color-medal-gold:    #ffd700;
+  --color-medal-silver:  #c0c0c0;
+  --color-medal-bronze:  #cd7f32;
+
+  /* --- Timer states --- */
+  --color-timer-ok:      #00e676;
+  --color-timer-warn:    #ff9800;
+  --color-timer-low:     #ff1744;
+
+  /* --- Accent / brand --- */
+  --color-accent:        #7c4dff;
+  --color-accent-hover:  #9c6fff;
+
+  /* --- Text hierarchy --- */
+  --color-text-primary:  #e6edf3;
+  --color-text-muted:    #6b7a8d;
+  --color-text-dim:      #3d4f61;
+
+  /* --- Focus ring --- */
+  --color-focus:         #00f5ff;
+
+  /* --- Spacing / tile sizing --- */
+  --tile-size:           2.25rem;
+  --tile-gap:            2px;
+  --tile-radius:         2px;
+
+  /* --- Border widths (chunky pixel aesthetic) --- */
+  --border-pixel:        3px;
+  --border-panel:        4px;
+
+  /* --- Panel shadow for depth --- */
+  --shadow-panel:        4px 4px 0 #000000cc;
+  --shadow-glow-cursor:  0 0 8px var(--color-cursor-glow),
+                         0 0 20px var(--color-cursor-glow);
+  --shadow-glow-goal:    0 0 8px var(--color-goal-glow),
+                         0 0 20px var(--color-goal-glow);
+
+  /* --- Typography --- */
+  --font-arcade:         'Press Start 2P', monospace;
+  --font-mono:           ui-monospace, 'Cascadia Code', 'Fira Mono', monospace;
+
+  /* --- Animation durations --- */
+  --duration-fast:       120ms;
+  --duration-normal:     240ms;
+  --duration-slow:       400ms;
 }
+
+/* ============================================================
+   Global resets
+   ============================================================ */
 
 html,
 body,
@@ -17,6 +89,142 @@ body,
 
 body {
   margin: 0;
-  background-color: var(--color-bg);
+  background-color: var(--color-arcade-bg);
   color: var(--color-fg);
+  font-family: var(--font-mono);
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+/* ============================================================
+   Focus styles — visible focus ring everywhere, AA-compliant
+   ============================================================ */
+
+:focus-visible {
+  outline: 3px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+/* ============================================================
+   KEYFRAMES
+   All motion keyframes are defined here and disabled under
+   prefers-reduced-motion via the wrapper rule at the bottom.
+   ============================================================ */
+
+/* Cursor: pulse/blink to draw the eye */
+@keyframes cursor-pulse {
+  0%, 100% { opacity: 1; box-shadow: var(--shadow-glow-cursor); }
+  50%       { opacity: 0.65; box-shadow: none; }
+}
+
+/* Goal flag: gentle vertical bob */
+@keyframes goal-bob {
+  0%, 100% { transform: translateY(0); }
+  50%       { transform: translateY(-3px); }
+}
+
+/* Goal glow: halo pulsation */
+@keyframes goal-glow {
+  0%, 100% { box-shadow: var(--shadow-glow-goal); }
+  50%       { box-shadow: 0 0 20px var(--color-goal-glow), 0 0 40px var(--color-goal-glow); }
+}
+
+/* Medal / score pop on map clear */
+@keyframes pop-in {
+  0%   { transform: scale(0.4); opacity: 0; }
+  60%  { transform: scale(1.2); opacity: 1; }
+  100% { transform: scale(1);   opacity: 1; }
+}
+
+/* Screen flash on map clear */
+@keyframes screen-flash {
+  0%   { background-color: #ffffff18; }
+  100% { background-color: transparent; }
+}
+
+/* Screen shake on game over */
+@keyframes screen-shake {
+  0%   { transform: translateX(0); }
+  20%  { transform: translateX(-6px); }
+  40%  { transform: translateX(6px); }
+  60%  { transform: translateX(-4px); }
+  80%  { transform: translateX(4px); }
+  100% { transform: translateX(0); }
+}
+
+/* Timer low pulse — red throb when time is running out */
+@keyframes timer-low-pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.5; }
+}
+
+/* Keycap press feedback */
+@keyframes keycap-press {
+  0%, 100% { transform: translateY(0); box-shadow: 0 4px 0 #000; }
+  50%       { transform: translateY(2px); box-shadow: 0 2px 0 #000; }
+}
+
+/* Scanline shimmer (subtle CRT feel on panels) */
+@keyframes scanline {
+  0%   { background-position: 0 0; }
+  100% { background-position: 0 4px; }
+}
+
+/* ============================================================
+   Animation utility classes
+   ============================================================ */
+
+.animate-cursor-pulse {
+  animation: cursor-pulse 1s ease-in-out infinite;
+}
+
+.animate-goal-bob {
+  animation: goal-bob 1.2s ease-in-out infinite;
+}
+
+.animate-goal-glow {
+  animation: goal-glow 1.2s ease-in-out infinite;
+}
+
+.animate-pop-in {
+  animation: pop-in 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+.animate-screen-flash {
+  animation: screen-flash 0.3s ease-out both;
+}
+
+.animate-screen-shake {
+  animation: screen-shake 0.45s ease-in-out both;
+}
+
+.animate-timer-low {
+  animation: timer-low-pulse 0.6s ease-in-out infinite;
+}
+
+/* ============================================================
+   prefers-reduced-motion — disable ALL animations / transitions
+   ============================================================ */
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-cursor-pulse,
+  .animate-goal-bob,
+  .animate-goal-glow,
+  .animate-pop-in,
+  .animate-screen-flash,
+  .animate-screen-shake,
+  .animate-timer-low {
+    animation: none;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    transition-duration: 0.001ms !important;
+  }
 }
