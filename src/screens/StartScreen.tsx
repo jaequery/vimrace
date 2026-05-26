@@ -35,8 +35,9 @@ export default function StartScreen({ game, reducedMotion }: StartScreenProps) {
       </h1>
 
       <p className="text-sm text-[var(--color-text-muted)] tracking-wide text-center max-w-xs">
-        Navigate to the <span className="text-[var(--color-goal)]">&#9873; flag</span> using Vim motions before the clock runs out.
-        Clearing maps adds bonus time — fewer keystrokes earns bigger bonuses and medals.
+        Navigate the maze to the <span className="text-[var(--color-goal)]">&#9873; flag</span> before the clock runs out.
+        Walls block <kbd>h</kbd><kbd>j</kbd><kbd>k</kbd><kbd>l</kbd> — but <kbd>w</kbd><kbd>b</kbd><kbd>e</kbd> hop right over them.
+        Fewer keystrokes earns bigger bonuses and medals.
       </p>
 
       {highScore > 0 && (

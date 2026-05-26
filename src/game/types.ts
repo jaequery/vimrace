@@ -14,24 +14,25 @@ export interface Pos {
 }
 
 /**
- * A VimRace map.
+ * A VimRace map — a maze.
  *
  * The grid is row-major: `grid[row][col] === true` means the cell is a
- * "filled" glyph (part of a word), `false` means blank floor.
+ * **wall** (impassable), `false` means open **floor** the cursor can stand on.
  *
- * For word motions, **each row is treated as an independent line of text**
- * where filled cells are word-characters and blank cells are spaces. Word
- * motions (`w`/`b`/`e`) never wrap to another row — see `vimEngine` for the
- * exact, documented semantics.
+ * Step motions (`h`/`j`/`k`/`l`) collide with walls — they refuse to move onto
+ * a wall cell. The "leap" motions (`w`/`b`/`e`/`0`/`$`) operate within a single
+ * row and are allowed to *jump over* walls, always landing on a floor cell.
+ * Leap motions never wrap to another row — see `vimEngine` for the exact,
+ * documented semantics.
  */
 export interface GameMap {
   rows: number;
   cols: number;
-  /** row-major occupancy; `grid[r][c] === true` => filled glyph */
+  /** row-major occupancy; `grid[r][c] === true` => wall (impassable) */
   grid: boolean[][];
-  /** cursor start — always on a filled cell */
+  /** cursor start — always on a floor cell */
   start: Pos;
-  /** goal cell — always on a filled cell, never equal to `start` */
+  /** goal cell — always on a floor cell, never equal to `start` */
   goal: Pos;
   /** difficulty level this map was generated for (1-based) */
   level: number;
@@ -62,15 +63,18 @@ export const MOTIONS: readonly Motion[] = [
  * cheat-sheet. MUST stay in sync with the behavior implemented in
  * `vimEngine.applyMotion` — if the engine's edge semantics change, update
  * the copy here so the cheat-sheet never lies to the player.
+ *
+ * h/j/k/l step one cell and are blocked by walls. w/b/e/0/$ leap over walls
+ * (always within the current row) and land on open floor.
  */
 export const MOTION_HELP: Record<Motion, string> = {
   h: 'left',
   j: 'down',
   k: 'up',
   l: 'right',
-  w: 'next word',
-  b: 'word back',
-  e: 'word end',
+  w: 'hop wall →',
+  b: '← hop wall',
+  e: 'hop to end',
   '0': 'row start',
   $: 'row end',
 };

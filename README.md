@@ -1,35 +1,38 @@
 # VimRace ⚡
 
 **Learn Vim motions by racing the clock.** VimRace is a single-player,
-pixel-art arcade game: pilot your cursor across a grid to the ⚑ flag using
-real Vim motions before the countdown runs out. Clearing maps banks score and
-buys you more time — and the fewer keystrokes you use, the bigger the reward.
-It's a fast, replayable way to build Vim muscle memory.
+pixel-art arcade game: pilot your cursor through a **maze** to the ⚑ flag using
+real Vim motions before the countdown runs out. Walls block you — but the Vim
+"leap" motions let you hop right over them. Clearing mazes banks score and buys
+you more time, and the fewer keystrokes you use, the bigger the reward. It's a
+fast, replayable way to build Vim muscle memory.
 
 ## How to play
 
 1. Press **Start** (or `Enter` / `Space`).
-2. A grid appears with your **cursor** and a **⚑ goal**. The clock is ticking.
-3. Move the cursor to the flag using Vim motions:
+2. A maze appears with your **cursor** and a **⚑ goal**. The clock is ticking.
+3. Navigate to the flag using Vim motions:
 
-   | Key | Motion |
-   |-----|--------|
-   | `h` `j` `k` `l` | left · down · up · right |
-   | `w` | start of next word (this row) |
-   | `b` | start of previous word (this row) |
-   | `e` | end of next word (this row) |
-   | `0` | first cell of the row |
-   | `$` | last cell of the row |
+   | Key | Motion | Walls? |
+   |-----|--------|--------|
+   | `h` `j` `k` `l` | left · down · up · right (one cell) | **blocked** by walls |
+   | `w` | hop right to the next open corridor | jumps over walls |
+   | `b` | hop left to the previous corridor | jumps over walls |
+   | `e` | hop to the end of a corridor | jumps over walls |
+   | `0` | leftmost open cell of the row | jumps over walls |
+   | `$` | rightmost open cell of the row | jumps over walls |
 
-4. Reach the flag to **bank score + bonus time** and jump to the next map.
+4. Reach the flag to **bank score + bonus time** and jump to the next maze.
 5. **Fewer keystrokes = bigger bonus** (gold / silver / bronze medals reward
-   getting near the optimal path).
+   getting near the optimal path). The leap motions are how you save
+   keystrokes — learn when to hop a wall instead of stepping around it.
 6. When the clock hits **0**, the run ends. Your best score is saved locally.
 
-> Word motions treat each **row** as an independent line of text: filled tiles
-> are word-characters, blank tiles are spaces, and `w`/`b`/`e` never wrap to
-> another row. This keeps the motions predictable while you learn them — the
-> on-screen cheat-sheet always matches the engine's behavior.
+> `h`/`j`/`k`/`l` step one cell and **collide with walls**. The leap motions
+> (`w`/`b`/`e`/`0`/`$`) operate within the current **row** only — they never
+> wrap to another row — and may jump *over* walls, always landing on open
+> floor. A "corridor" is a run of open cells in a row. The on-screen
+> cheat-sheet always matches the engine's behavior.
 
 VimRace is keyboard-only — play on a desktop or laptop.
 

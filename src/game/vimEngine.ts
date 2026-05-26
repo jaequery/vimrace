@@ -1,24 +1,35 @@
 /**
- * vimEngine.ts — pure Vim-motion logic for VimRace.
+ * vimEngine.ts — pure Vim-motion logic for VimRace (maze edition).
  *
- * Word-motion model (each row is an independent line of text):
- *   - Filled cells  (grid[r][c] === true)  → word characters
- *   - Blank cells   (grid[r][c] === false) → spaces / separators
- *   A "word" is a maximal contiguous run of filled cells within a row.
+ * Maze model:
+ *   - Wall cells   (grid[r][c] === true)  → impassable
+ *   - Floor cells  (grid[r][c] === false) → open; the cursor stands on floor
  *
- * All motions are clamped to grid bounds; none wrap to another row.
+ * Two families of motion:
  *
- * Edge-case decisions (documented here so MOTION_HELP can stay honest):
- *   w  On the last word of a row (no next word exists), lands on the LAST cell
- *      of the row (rightmost col). If the cursor is already at col (cols-1),
- *      it stays there.
- *   b  Moves to the first cell of the word the cursor is on, or — if the
- *      cursor sits on a blank — the first cell of the word immediately to the
- *      left. If no such word exists (cursor at or before the first word start),
- *      lands on col 0.
- *   e  Moves to the last cell of the word the cursor is on (if not already at
- *      its end), or the last cell of the NEXT word. If no such word exists,
- *      lands on the LAST cell of the row.
+ *   STEP — h/j/k/l. Move exactly one cell. They COLLIDE with walls: if the
+ *   target cell is a wall (or out of bounds) the cursor stays put.
+ *
+ *   LEAP — w/b/e/0/$. Operate within the current row only (never wrap) and are
+ *   allowed to jump OVER walls, always landing on a floor cell. A "corridor" is
+ *   a maximal contiguous run of floor cells in a row; leaps move between
+ *   corridors, treating the walls between them as gaps to hop across.
+ *
+ * Leap edge-case decisions (documented so MOTION_HELP can stay honest):
+ *   w  Jump to the FIRST floor cell of the next corridor to the right (hopping
+ *      the wall between). If there is no corridor further right, land on the
+ *      rightmost floor cell of the row.
+ *   b  If not already at the left edge of the current corridor, jump to that
+ *      edge; otherwise hop left over the wall to the LEFT edge of the previous
+ *      corridor. If none exists, land on the leftmost floor cell of the row.
+ *   e  If not already at the right edge of the current corridor, jump to that
+ *      edge; otherwise hop right to the RIGHT edge of the next corridor. If
+ *      none exists, land on the rightmost floor cell of the row.
+ *   0  Jump to the leftmost floor cell of the row (hopping any leading walls).
+ *   $  Jump to the rightmost floor cell of the row (hopping any trailing walls).
+ *
+ * If a row has no floor at all (degenerate), leap motions leave the cursor
+ * where it is rather than inventing an illegal position.
  */
 
 import type { GameMap, Motion, Pos } from '@/game/types';
@@ -27,143 +38,120 @@ import type { GameMap, Motion, Pos } from '@/game/types';
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Clamp n to [lo, hi]. */
-function clamp(n: number, lo: number, hi: number): number {
-  return Math.max(lo, Math.min(hi, n));
+/** True when (row,col) is in bounds and an open floor cell. */
+function isFloor(map: GameMap, row: number, col: number): boolean {
+  if (row < 0 || row >= map.rows || col < 0 || col >= map.cols) return false;
+  return map.grid[row][col] === false;
 }
 
 /**
- * Build a compact list of word-spans for a single row.
- * Each span is [start, end] (inclusive column indices).
+ * Build a compact list of floor "corridors" for a single row.
+ * Each corridor is [start, end] (inclusive column indices) of contiguous floor.
  */
-function rowSpans(grid: boolean[][], row: number, cols: number): [number, number][] {
-  const spans: [number, number][] = [];
+function floorRuns(grid: boolean[][], row: number, cols: number): [number, number][] {
+  const runs: [number, number][] = [];
   let i = 0;
   while (i < cols) {
-    if (grid[row][i]) {
+    if (grid[row][i] === false) {
       const start = i;
-      while (i < cols && grid[row][i]) i++;
-      spans.push([start, i - 1]);
+      while (i < cols && grid[row][i] === false) i++;
+      runs.push([start, i - 1]);
     } else {
       i++;
     }
   }
-  return spans;
+  return runs;
+}
+
+/** The corridor containing `col`, or null if `col` sits on a wall. */
+function runContaining(runs: [number, number][], col: number): [number, number] | null {
+  for (const run of runs) {
+    if (col >= run[0] && col <= run[1]) return run;
+  }
+  return null;
 }
 
 // ---------------------------------------------------------------------------
-// Motion implementations
+// Step motions (collide with walls)
 // ---------------------------------------------------------------------------
 
-function moveH(map: GameMap, pos: Pos): Pos {
-  return { row: pos.row, col: clamp(pos.col - 1, 0, map.cols - 1) };
+/** Step one cell to `next` if it is open floor; otherwise stay at `pos`. */
+function step(map: GameMap, pos: Pos, dRow: number, dCol: number): Pos {
+  const row = pos.row + dRow;
+  const col = pos.col + dCol;
+  return isFloor(map, row, col) ? { row, col } : pos;
 }
 
-function moveL(map: GameMap, pos: Pos): Pos {
-  return { row: pos.row, col: clamp(pos.col + 1, 0, map.cols - 1) };
+const moveH = (map: GameMap, pos: Pos): Pos => step(map, pos, 0, -1);
+const moveL = (map: GameMap, pos: Pos): Pos => step(map, pos, 0, +1);
+const moveJ = (map: GameMap, pos: Pos): Pos => step(map, pos, +1, 0);
+const moveK = (map: GameMap, pos: Pos): Pos => step(map, pos, -1, 0);
+
+// ---------------------------------------------------------------------------
+// Leap motions (hop over walls, land on floor)
+// ---------------------------------------------------------------------------
+
+/** 0 — leftmost floor cell of the row. */
+function moveRow0(map: GameMap, pos: Pos): Pos {
+  const runs = floorRuns(map.grid, pos.row, map.cols);
+  if (runs.length === 0) return pos;
+  return { row: pos.row, col: runs[0][0] };
 }
 
-function moveJ(map: GameMap, pos: Pos): Pos {
-  return { row: clamp(pos.row + 1, 0, map.rows - 1), col: pos.col };
-}
-
-function moveK(map: GameMap, pos: Pos): Pos {
-  return { row: clamp(pos.row - 1, 0, map.rows - 1), col: pos.col };
-}
-
-function moveRow0(_map: GameMap, pos: Pos): Pos {
-  return { row: pos.row, col: 0 };
-}
-
+/** $ — rightmost floor cell of the row. */
 function moveDollar(map: GameMap, pos: Pos): Pos {
-  return { row: pos.row, col: map.cols - 1 };
+  const runs = floorRuns(map.grid, pos.row, map.cols);
+  if (runs.length === 0) return pos;
+  return { row: pos.row, col: runs[runs.length - 1][1] };
 }
 
-/**
- * w — move to the first cell of the NEXT word to the right on this row.
- *
- * Algorithm:
- *  1. Find all word spans in the current row.
- *  2. Find the first span whose START is strictly > current col.
- *  3. If found, land on that span's start.
- *  4. If not found (no next word exists), land on the last cell of the row.
- */
+/** w — first floor cell of the next corridor to the right (else rightmost floor). */
 function moveW(map: GameMap, pos: Pos): Pos {
-  const spans = rowSpans(map.grid, pos.row, map.cols);
-  for (const [start] of spans) {
-    if (start > pos.col) {
-      return { row: pos.row, col: start };
-    }
+  const runs = floorRuns(map.grid, pos.row, map.cols);
+  if (runs.length === 0) return pos;
+  for (const [start] of runs) {
+    if (start > pos.col) return { row: pos.row, col: start };
   }
-  // No next word — land on last cell of row.
-  return { row: pos.row, col: map.cols - 1 };
+  // No corridor further right — land on rightmost floor cell of the row.
+  return { row: pos.row, col: runs[runs.length - 1][1] };
 }
 
-/**
- * b — move to the first cell of the word at/left of the cursor on this row.
- *
- * Algorithm:
- *  1. Find all word spans.
- *  2. If cursor is INSIDE a span (start ≤ col ≤ end) AND col > start,
- *     land on that span's start (moves within the current word).
- *  3. Otherwise find the rightmost span whose END is < current col, land on
- *     its start.
- *  4. If no such span exists, land on col 0.
- */
+/** b — left edge of current corridor, else left edge of the previous one. */
 function moveB(map: GameMap, pos: Pos): Pos {
-  const spans = rowSpans(map.grid, pos.row, map.cols);
+  const runs = floorRuns(map.grid, pos.row, map.cols);
+  if (runs.length === 0) return pos;
 
-  // Check if cursor is inside a span and not already at its start.
-  for (const [start, end] of spans) {
-    if (pos.col >= start && pos.col <= end && pos.col > start) {
-      return { row: pos.row, col: start };
-    }
-  }
+  // Inside a corridor but not at its left edge → snap to that edge.
+  const cur = runContaining(runs, pos.col);
+  if (cur && pos.col > cur[0]) return { row: pos.row, col: cur[0] };
 
-  // Find the rightmost span ending strictly before the current col.
+  // Otherwise hop to the left edge of the rightmost corridor entirely left of us.
   let best: number | null = null;
-  for (const [start, end] of spans) {
-    if (end < pos.col) {
-      best = start;
-    }
+  for (const [start, end] of runs) {
+    if (end < pos.col) best = start;
   }
-  if (best !== null) {
-    return { row: pos.row, col: best };
-  }
+  if (best !== null) return { row: pos.row, col: best };
 
-  // Nothing found — land at col 0.
-  return { row: pos.row, col: 0 };
+  // Nothing to the left — leftmost floor cell of the row.
+  return { row: pos.row, col: runs[0][0] };
 }
 
-/**
- * e — move to the last cell of the next word (or current word if not at end).
- *
- * Algorithm:
- *  1. Find all word spans.
- *  2. If cursor is INSIDE a span and col < end, land on that span's end.
- *  3. Otherwise find the first span whose START is > current col, land on
- *     its end.
- *  4. If no such span, land on the last cell of the row.
- */
+/** e — right edge of current corridor, else right edge of the next one. */
 function moveE(map: GameMap, pos: Pos): Pos {
-  const spans = rowSpans(map.grid, pos.row, map.cols);
+  const runs = floorRuns(map.grid, pos.row, map.cols);
+  if (runs.length === 0) return pos;
 
-  // If cursor is on a word and not yet at that word's end, land on that end.
-  for (const [start, end] of spans) {
-    if (pos.col >= start && pos.col <= end && pos.col < end) {
-      return { row: pos.row, col: end };
-    }
+  // Inside a corridor but not at its right edge → snap to that edge.
+  const cur = runContaining(runs, pos.col);
+  if (cur && pos.col < cur[1]) return { row: pos.row, col: cur[1] };
+
+  // Otherwise hop to the right edge of the next corridor to the right.
+  for (const [start, end] of runs) {
+    if (start > pos.col) return { row: pos.row, col: end };
   }
 
-  // Find the first span starting strictly after the current col.
-  for (const [start, end] of spans) {
-    if (start > pos.col) {
-      return { row: pos.row, col: end };
-    }
-  }
-
-  // No next word — land on the last cell of the row.
-  return { row: pos.row, col: map.cols - 1 };
+  // Nothing further right — rightmost floor cell of the row.
+  return { row: pos.row, col: runs[runs.length - 1][1] };
 }
 
 // ---------------------------------------------------------------------------

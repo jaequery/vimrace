@@ -4,17 +4,18 @@
  * Uses mulberry32 as the seeded PRNG so maps are reproducible given the
  * same seed. Math.random is never called here.
  *
- * Grid model:
+ * Grid model (a maze):
  *   - Rows grow with level starting from MIN_ROWS.
  *   - Cols grow with level starting from MIN_COLS.
- *   - Each row contains scattered "word runs" (contiguous filled cells of
- *     length 2–5) separated by blank gaps of ≥ 1 cell.
+ *   - Each row scatters short "wall runs" (contiguous wall cells of length
+ *     1–3) over an open floor base, separated by floor gaps of 2–4 cells, so
+ *     floor dominates and the maze stays well-connected.
  *   - Start is placed near the top-left, goal near the bottom-right;
- *     both on filled cells; start ≠ goal; minimum Manhattan distance
+ *     both on FLOOR cells; start ≠ goal; minimum Manhattan distance
  *     increases with level.
  *   - Solvability is guaranteed: BFS is run from start; if goal is
- *     unreachable (isolated cell or disconnected island) the generator
- *     retries with an incremented internal seed offset until it succeeds.
+ *     unreachable the generator retries with an incremented internal seed
+ *     offset until it succeeds, falling back to an all-floor grid.
  *
  * par is computed by BFS over all 9 MOTIONS (state = Pos), counting the
  * minimum number of motions needed to reach goal from start.
@@ -64,33 +65,35 @@ function gridSize(level: number): { rows: number; cols: number } {
 }
 
 // ---------------------------------------------------------------------------
-// Word-run generation
+// Wall-run generation
 // ---------------------------------------------------------------------------
 
 /**
- * Fill a single row with random word runs separated by gaps.
- * Returns a boolean[] of length `cols`.
+ * Scatter short wall runs over an open floor row.
+ * `false` = floor (walkable), `true` = wall. Returns a boolean[] of length
+ * `cols`. Floor dominates so the maze stays connected; the BFS solvability
+ * check in `generateMap` is the ultimate guarantee.
  */
 function generateRow(rng: () => number, cols: number): boolean[] {
-  const cells: boolean[] = new Array(cols).fill(false);
-  let col = randInt(rng, 0, 2); // small random leading gap
+  const cells: boolean[] = new Array(cols).fill(false); // start fully open
+  let col = randInt(rng, 0, 2); // small random leading floor gap
 
   while (col < cols) {
-    const runLen = randInt(rng, 2, 5);
+    const runLen = randInt(rng, 1, 3); // short wall run
     const end = Math.min(col + runLen - 1, cols - 1);
     for (let c = col; c <= end; c++) {
       cells[c] = true;
     }
-    col = end + 1 + randInt(rng, 1, 3); // gap of 1–3 before next run
+    col = end + 1 + randInt(rng, 2, 4); // floor gap of 2–4 before next wall
   }
   return cells;
 }
 
 // ---------------------------------------------------------------------------
-// Filled-cell pool helpers
+// Floor-cell pool helpers
 // ---------------------------------------------------------------------------
 
-function filledCellsInRegion(
+function floorCellsInRegion(
   grid: boolean[][],
   rows: number,
   cols: number,
@@ -102,7 +105,7 @@ function filledCellsInRegion(
   const out: Pos[] = [];
   for (let r = rowLo; r <= rowHi; r++) {
     for (let c = colLo; c <= colHi; c++) {
-      if (r < rows && c < cols && grid[r][c]) {
+      if (r < rows && c < cols && grid[r][c] === false) {
         out.push({ row: r, col: c });
       }
     }
@@ -110,7 +113,7 @@ function filledCellsInRegion(
   return out;
 }
 
-function pickFilled(rng: () => number, candidates: Pos[]): Pos | null {
+function pickRandom(rng: () => number, candidates: Pos[]): Pos | null {
   if (candidates.length === 0) return null;
   return candidates[Math.floor(rng() * candidates.length)];
 }
@@ -194,25 +197,26 @@ export function generateMap(opts: { level: number; seed?: number }): GameMap {
       grid.push(generateRow(rng, cols));
     }
 
-    // Ensure at least one filled cell per row (edge-case guard).
+    // Ensure at least one floor cell per row so the cursor can pass through
+    // it vertically (a fully walled row would split the maze in two).
     for (let r = 0; r < rows; r++) {
-      if (!grid[r].some(Boolean)) {
-        grid[r][0] = true;
-        grid[r][cols - 1] = true;
+      if (grid[r].every(Boolean)) {
+        grid[r][0] = false;
       }
     }
 
-    // Pick start from top-left quadrant.
+    // Pick start from top-left quadrant (a floor cell).
     const startRowHi = Math.max(0, Math.floor(rows / 3));
     const startColHi = Math.max(0, Math.floor(cols / 3));
-    const startCandidates = filledCellsInRegion(grid, rows, cols, 0, startRowHi, 0, startColHi);
-    const start = pickFilled(rng, startCandidates);
+    const startCandidates = floorCellsInRegion(grid, rows, cols, 0, startRowHi, 0, startColHi);
+    const start = pickRandom(rng, startCandidates);
     if (!start) continue;
 
-    // Pick goal from bottom-right quadrant, min Manhattan distance from start.
+    // Pick goal from bottom-right quadrant (a floor cell), min Manhattan
+    // distance from start.
     const goalRowLo = Math.min(rows - 1, Math.ceil(rows * 2 / 3));
     const goalColLo = Math.min(cols - 1, Math.ceil(cols * 2 / 3));
-    const goalCandidates = filledCellsInRegion(
+    const goalCandidates = floorCellsInRegion(
       grid, rows, cols,
       goalRowLo, rows - 1,
       goalColLo, cols - 1,
@@ -220,7 +224,7 @@ export function generateMap(opts: { level: number; seed?: number }): GameMap {
       (p) => Math.abs(p.row - start.row) + Math.abs(p.col - start.col) >= minDist
         && !(p.row === start.row && p.col === start.col),
     );
-    const goal = pickFilled(rng, goalCandidates);
+    const goal = pickRandom(rng, goalCandidates);
     if (!goal) continue;
 
     // Build a candidate map to run BFS on.
@@ -231,9 +235,9 @@ export function generateMap(opts: { level: number; seed?: number }): GameMap {
     return { ...candidate, par };
   }
 
-  // Fallback: construct a guaranteed-solvable minimal map (all cells filled,
+  // Fallback: construct a guaranteed-solvable minimal map (all cells floor,
   // start at (0,0), goal at far corner). This should almost never trigger.
-  const fallbackGrid = Array.from({ length: rows }, () => new Array(cols).fill(true) as boolean[]);
+  const fallbackGrid = Array.from({ length: rows }, () => new Array(cols).fill(false) as boolean[]);
   const fallbackStart: Pos = { row: 0, col: 0 };
   const fallbackGoal: Pos = { row: rows - 1, col: cols - 1 };
   const fallback: GameMap = {

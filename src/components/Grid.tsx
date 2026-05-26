@@ -14,13 +14,14 @@ interface GridProps {
 /* ------------------------------------------------------------------ */
 
 interface CellProps {
-  filled: boolean;
+  /** true => wall (impassable); false => open floor */
+  isWall: boolean;
   isCursor: boolean;
   isGoal: boolean;
   reducedMotion: boolean;
 }
 
-function Cell({ filled, isCursor, isGoal, reducedMotion }: CellProps) {
+function Cell({ isWall, isCursor, isGoal, reducedMotion }: CellProps) {
   // Cursor always wins visually even if it happens to land on goal.
   if (isCursor) {
     return (
@@ -55,7 +56,9 @@ function Cell({ filled, isCursor, isGoal, reducedMotion }: CellProps) {
         className={clsx(
           'relative flex items-center justify-center overflow-hidden',
           'w-full h-full',
-          'bg-[var(--color-tile-filled)] border-2 border-[var(--color-goal)]',
+          // Goal sits on open floor — use the floor background so it reads as
+          // a reachable destination, not a wall.
+          'bg-[var(--color-tile-floor)] border-2 border-[var(--color-goal)]',
           !reducedMotion && 'animate-goal-glow',
         )}
       >
@@ -73,19 +76,23 @@ function Cell({ filled, isCursor, isGoal, reducedMotion }: CellProps) {
     );
   }
 
-  if (filled) {
+  if (isWall) {
+    // Solid, impassable wall — a raised bevel (light top/left edge, dark
+    // bottom/right) makes it read as a barrier you cannot step onto.
     return (
       <div
+        aria-label="wall"
         className={clsx(
           'w-full h-full',
           'bg-[var(--color-tile-filled)]',
-          'border-2 border-[var(--color-tile-border)]',
+          'border-t-2 border-l-2 border-white/15',
+          'border-b-2 border-r-2 border-black/40',
         )}
       />
     );
   }
 
-  // Blank floor cell
+  // Open floor cell — the walkable path.
   return (
     <div
       className={clsx(
@@ -187,7 +194,7 @@ export default function Grid({ map, cursor, reducedMotion = false }: GridProps) 
           {Array.from({ length: cols }, (_, c) => {
             const isCursor = cursor.row === r && cursor.col === c;
             const isGoal = goal.row === r && goal.col === c;
-            const filled = grid[r]?.[c] ?? false;
+            const isWall = grid[r]?.[c] ?? false;
 
             return (
               <div
@@ -204,7 +211,7 @@ export default function Grid({ map, cursor, reducedMotion = false }: GridProps) 
                 }
               >
                 <Cell
-                  filled={filled}
+                  isWall={isWall}
                   isCursor={isCursor}
                   isGoal={isGoal}
                   reducedMotion={reducedMotion}

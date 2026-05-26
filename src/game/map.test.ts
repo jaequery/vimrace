@@ -46,7 +46,7 @@ describe('generateMap invariants', () => {
 
   for (const level of LEVELS) {
     for (const seed of SEEDS) {
-      it(`level=${level} seed=${seed}: start/goal on filled cells, distinct, par>0, positions in bounds`, () => {
+      it(`level=${level} seed=${seed}: start/goal on floor cells, distinct, par>0, positions in bounds`, () => {
         const map = generateMap({ level, seed });
 
         // Grid dimensions match declared rows/cols.
@@ -55,11 +55,11 @@ describe('generateMap invariants', () => {
           expect(row.length).toBe(map.cols);
         }
 
-        // start is on a filled cell.
-        expect(map.grid[map.start.row][map.start.col]).toBe(true);
+        // start is on a floor cell (the cursor must be able to stand there).
+        expect(map.grid[map.start.row][map.start.col]).toBe(false);
 
-        // goal is on a filled cell.
-        expect(map.grid[map.goal.row][map.goal.col]).toBe(true);
+        // goal is on a floor cell.
+        expect(map.grid[map.goal.row][map.goal.col]).toBe(false);
 
         // start ≠ goal.
         expect(map.start).not.toEqual(map.goal);

@@ -1,11 +1,12 @@
 /**
- * vimEngine.test.ts — unit tests for applyMotion and isGoalReached.
+ * vimEngine.test.ts — unit tests for applyMotion and isGoalReached (maze).
  *
  * Test map convention:
- *   T (true)  = filled cell (word character)
- *   F (false) = blank cell (space)
+ *   T (true)  = wall  (impassable)
+ *   F (false) = floor (walkable — the cursor stands here)
  *
- * Most tests use a small hand-crafted map so expected outcomes are obvious.
+ * Step motions (h/j/k/l) collide with walls. Leap motions (w/b/e/0/$) hop over
+ * walls within the row and always land on floor.
  */
 
 import { describe, it, expect } from 'vitest';
@@ -16,8 +17,8 @@ import type { GameMap, Pos } from '@/game/types';
 // Helpers to build minimal test maps
 // ---------------------------------------------------------------------------
 
-const T = true;
-const F = false;
+const T = true; // wall
+const F = false; // floor
 
 /** Build a GameMap from a 2-D boolean grid. start/goal/par are placeholders. */
 function makeMap(grid: boolean[][]): GameMap {
@@ -40,248 +41,209 @@ function pos(row: number, col: number): Pos {
 }
 
 // ---------------------------------------------------------------------------
-// Canonical test map (4 rows × 8 cols)
+// Canonical test maze (4 rows × 8 cols)
 //
-// Row 0: F T T F T T F F   (words: [1,2], [4,5])
-// Row 1: T T F F F T T F   (words: [0,1], [5,6])
-// Row 2: F F T T T F F T   (words: [2,4], [7,7])
-// Row 3: T T F T T T F F   (words: [0,1], [3,5])
+// Row 0: F F T T F F F T   floor corridors: [0,1] [4,6]
+// Row 1: F T T F F T F F   floor corridors: [0,0] [3,4] [6,7]
+// Row 2: F F F T T F F F   floor corridors: [0,2] [5,7]
+// Row 3: T F F F T F T F   floor corridors: [1,3] [5,5] [7,7]
 // ---------------------------------------------------------------------------
 
-const MAP = makeMap([
-  [F, T, T, F, T, T, F, F],
-  [T, T, F, F, F, T, T, F],
-  [F, F, T, T, T, F, F, T],
-  [T, T, F, T, T, T, F, F],
+const MAZE = makeMap([
+  [F, F, T, T, F, F, F, T],
+  [F, T, T, F, F, T, F, F],
+  [F, F, F, T, T, F, F, F],
+  [T, F, F, F, T, F, T, F],
 ]);
 
 // ---------------------------------------------------------------------------
-// h — move left, clamp at col 0
+// h — step left, blocked by walls / bounds
 // ---------------------------------------------------------------------------
-describe('h', () => {
-  it('moves one cell left', () => {
-    expect(applyMotion(MAP, pos(0, 3), 'h')).toEqual(pos(0, 2));
+describe('h (step left)', () => {
+  it('moves one cell left onto floor', () => {
+    expect(applyMotion(MAZE, pos(0, 1), 'h')).toEqual(pos(0, 0));
   });
-  it('clamps at col 0', () => {
-    expect(applyMotion(MAP, pos(1, 0), 'h')).toEqual(pos(1, 0));
+  it('is blocked by a wall to the left (stays put)', () => {
+    // (0,4): left is (0,3) = wall → no move
+    expect(applyMotion(MAZE, pos(0, 4), 'h')).toEqual(pos(0, 4));
   });
-  it('does not change row', () => {
-    const r = applyMotion(MAP, pos(2, 4), 'h');
-    expect(r.row).toBe(2);
+  it('is blocked at the left edge', () => {
+    expect(applyMotion(MAZE, pos(1, 0), 'h')).toEqual(pos(1, 0));
   });
 });
 
 // ---------------------------------------------------------------------------
-// l — move right, clamp at last col
+// l — step right, blocked by walls / bounds
 // ---------------------------------------------------------------------------
-describe('l', () => {
-  it('moves one cell right', () => {
-    expect(applyMotion(MAP, pos(0, 2), 'l')).toEqual(pos(0, 3));
+describe('l (step right)', () => {
+  it('moves one cell right onto floor', () => {
+    expect(applyMotion(MAZE, pos(0, 0), 'l')).toEqual(pos(0, 1));
   });
-  it('clamps at last col', () => {
-    expect(applyMotion(MAP, pos(0, 7), 'l')).toEqual(pos(0, 7));
+  it('is blocked by a wall to the right (stays put)', () => {
+    // (0,1): right is (0,2) = wall → no move
+    expect(applyMotion(MAZE, pos(0, 1), 'l')).toEqual(pos(0, 1));
   });
-  it('does not change row', () => {
-    const r = applyMotion(MAP, pos(3, 2), 'l');
-    expect(r.row).toBe(3);
+  it('is blocked at the right edge', () => {
+    expect(applyMotion(MAZE, pos(1, 7), 'l')).toEqual(pos(1, 7));
   });
 });
 
 // ---------------------------------------------------------------------------
-// j — move one row down, preserve col, clamp at last row
+// j — step down, blocked by walls / bounds
 // ---------------------------------------------------------------------------
-describe('j', () => {
-  it('moves one row down', () => {
-    expect(applyMotion(MAP, pos(0, 3), 'j')).toEqual(pos(1, 3));
+describe('j (step down)', () => {
+  it('moves one row down onto floor', () => {
+    // col 0 is floor in rows 0,1,2
+    expect(applyMotion(MAZE, pos(0, 0), 'j')).toEqual(pos(1, 0));
   });
-  it('clamps at last row', () => {
-    expect(applyMotion(MAP, pos(3, 2), 'j')).toEqual(pos(3, 2));
+  it('is blocked by a wall below (stays put)', () => {
+    // (0,5): below is (1,5) = wall → no move
+    expect(applyMotion(MAZE, pos(0, 5), 'j')).toEqual(pos(0, 5));
   });
-  it('preserves column', () => {
-    expect(applyMotion(MAP, pos(1, 5), 'j').col).toBe(5);
+  it('is blocked at the bottom edge', () => {
+    expect(applyMotion(MAZE, pos(3, 1), 'j')).toEqual(pos(3, 1));
   });
 });
 
 // ---------------------------------------------------------------------------
-// k — move one row up, preserve col, clamp at row 0
+// k — step up, blocked by walls / bounds
 // ---------------------------------------------------------------------------
-describe('k', () => {
-  it('moves one row up', () => {
-    expect(applyMotion(MAP, pos(2, 4), 'k')).toEqual(pos(1, 4));
+describe('k (step up)', () => {
+  it('moves one row up onto floor', () => {
+    expect(applyMotion(MAZE, pos(1, 0), 'k')).toEqual(pos(0, 0));
   });
-  it('clamps at row 0', () => {
-    expect(applyMotion(MAP, pos(0, 5), 'k')).toEqual(pos(0, 5));
+  it('is blocked by a wall above (stays put)', () => {
+    // (2,1): above is (1,1) = wall → no move
+    expect(applyMotion(MAZE, pos(2, 1), 'k')).toEqual(pos(2, 1));
   });
-  it('preserves column', () => {
-    expect(applyMotion(MAP, pos(3, 3), 'k').col).toBe(3);
+  it('is blocked at the top edge', () => {
+    expect(applyMotion(MAZE, pos(0, 1), 'k')).toEqual(pos(0, 1));
   });
 });
 
 // ---------------------------------------------------------------------------
-// 0 — jump to col 0
+// 0 — leap to leftmost floor cell of the row
 // ---------------------------------------------------------------------------
-describe('0', () => {
-  it('jumps to col 0 from the middle', () => {
-    expect(applyMotion(MAP, pos(1, 5), '0')).toEqual(pos(1, 0));
+describe('0 (row start)', () => {
+  it('jumps to the leftmost floor cell', () => {
+    expect(applyMotion(MAZE, pos(0, 5), '0')).toEqual(pos(0, 0));
   });
-  it('stays at col 0 when already there', () => {
-    expect(applyMotion(MAP, pos(0, 0), '0')).toEqual(pos(0, 0));
+  it('hops over a leading wall to the first floor cell', () => {
+    // Row 3 col 0 is a wall; leftmost floor is col 1
+    expect(applyMotion(MAZE, pos(3, 5), '0')).toEqual(pos(3, 1));
   });
-  it('does not change row', () => {
-    expect(applyMotion(MAP, pos(2, 7), '0').row).toBe(2);
+  it('stays when already at the leftmost floor cell', () => {
+    expect(applyMotion(MAZE, pos(0, 0), '0')).toEqual(pos(0, 0));
   });
 });
 
 // ---------------------------------------------------------------------------
-// $ — jump to last col
+// $ — leap to rightmost floor cell of the row
 // ---------------------------------------------------------------------------
-describe('$', () => {
-  it('jumps to last col from the middle', () => {
-    expect(applyMotion(MAP, pos(0, 2), '$')).toEqual(pos(0, 7));
+describe('$ (row end)', () => {
+  it('jumps to the rightmost floor cell, hopping a trailing wall', () => {
+    // Row 0 col 7 is a wall; rightmost floor is col 6
+    expect(applyMotion(MAZE, pos(0, 0), '$')).toEqual(pos(0, 6));
   });
-  it('stays at last col when already there', () => {
-    expect(applyMotion(MAP, pos(3, 7), '$')).toEqual(pos(3, 7));
+  it('jumps to the last col when it is floor', () => {
+    expect(applyMotion(MAZE, pos(1, 0), '$')).toEqual(pos(1, 7));
   });
-  it('does not change row', () => {
-    expect(applyMotion(MAP, pos(1, 0), '$').row).toBe(1);
+  it('stays when already at the rightmost floor cell', () => {
+    expect(applyMotion(MAZE, pos(1, 7), '$')).toEqual(pos(1, 7));
   });
 });
 
 // ---------------------------------------------------------------------------
-// w — next word start on the same row
-// Row 0: F T T F T T F F   (words: [1,2], [4,5])
+// w — hop right to the start of the next corridor
+// Row 0 corridors: [0,1] [4,6]   Row 1 corridors: [0,0] [3,4] [6,7]
 // ---------------------------------------------------------------------------
-describe('w', () => {
-  it('from inside first word → lands on start of second word', () => {
-    // cursor at col 1 (inside word [1,2]), next word starts at col 4
-    expect(applyMotion(MAP, pos(0, 1), 'w')).toEqual(pos(0, 4));
+describe('w (hop wall →)', () => {
+  it('hops over the wall to the start of the next corridor', () => {
+    expect(applyMotion(MAZE, pos(0, 0), 'w')).toEqual(pos(0, 4));
   });
-  it('from blank before first word → lands on first word start', () => {
-    // cursor at col 0 (blank), first word starts at col 1
-    expect(applyMotion(MAP, pos(0, 0), 'w')).toEqual(pos(0, 1));
+  it('from inside the first corridor → next corridor start', () => {
+    expect(applyMotion(MAZE, pos(0, 1), 'w')).toEqual(pos(0, 4));
   });
-  it('from last word → lands on last cell of row (no next word)', () => {
-    // cursor at col 4 (start of second word [4,5]), no further word
-    expect(applyMotion(MAP, pos(0, 4), 'w')).toEqual(pos(0, 7));
+  it('no corridor further right → rightmost floor cell', () => {
+    expect(applyMotion(MAZE, pos(0, 4), 'w')).toEqual(pos(0, 6));
   });
-  it('from end of last word → stays at last cell of row', () => {
-    // cursor at col 5 (end of last word), still no next word
-    expect(applyMotion(MAP, pos(0, 5), 'w')).toEqual(pos(0, 7));
-  });
-  it('from last cell of row already → stays there', () => {
-    expect(applyMotion(MAP, pos(0, 7), 'w')).toEqual(pos(0, 7));
+  it('chains across multiple corridors', () => {
+    expect(applyMotion(MAZE, pos(1, 0), 'w')).toEqual(pos(1, 3));
+    expect(applyMotion(MAZE, pos(1, 3), 'w')).toEqual(pos(1, 6));
   });
   it('does not wrap to another row', () => {
-    expect(applyMotion(MAP, pos(0, 5), 'w').row).toBe(0);
+    expect(applyMotion(MAZE, pos(0, 4), 'w').row).toBe(0);
   });
 });
 
 // ---------------------------------------------------------------------------
-// b — word start at/left of cursor on the same row
-// Row 1: T T F F F T T F   (words: [0,1], [5,6])
+// b — hop left to the start of the current / previous corridor
+// Row 1 corridors: [0,0] [3,4] [6,7]
 // ---------------------------------------------------------------------------
-describe('b', () => {
-  it('from inside a word (not at its start) → lands on word start', () => {
-    // cursor at col 1 (inside word [0,1]), start is col 0
-    expect(applyMotion(MAP, pos(1, 1), 'b')).toEqual(pos(1, 0));
+describe('b (← hop wall)', () => {
+  it('snaps to the left edge of the current corridor', () => {
+    expect(applyMotion(MAZE, pos(1, 4), 'b')).toEqual(pos(1, 3));
   });
-  it('from start of second word → lands on start of first word', () => {
-    // cursor at col 5 (start of [5,6]), previous word starts at col 0
-    expect(applyMotion(MAP, pos(1, 5), 'b')).toEqual(pos(1, 0));
+  it('from a corridor start → hops left to previous corridor start', () => {
+    expect(applyMotion(MAZE, pos(1, 3), 'b')).toEqual(pos(1, 0));
   });
-  it('from blank between words → lands on start of word to the left', () => {
-    // cursor at col 3 (blank), word to the left is [0,1], start = 0
-    expect(applyMotion(MAP, pos(1, 3), 'b')).toEqual(pos(1, 0));
+  it('hops back across multiple corridors', () => {
+    expect(applyMotion(MAZE, pos(1, 6), 'b')).toEqual(pos(1, 3));
   });
-  it('from start of first word → lands on col 0 (no prior word)', () => {
-    expect(applyMotion(MAP, pos(1, 0), 'b')).toEqual(pos(1, 0));
-  });
-  it('from blank before any word → lands on col 0', () => {
-    // Row 0 col 0 is blank, no word to the left
-    expect(applyMotion(MAP, pos(0, 0), 'b')).toEqual(pos(0, 0));
+  it('at the leftmost corridor → stays', () => {
+    expect(applyMotion(MAZE, pos(1, 0), 'b')).toEqual(pos(1, 0));
   });
   it('does not wrap to another row', () => {
-    expect(applyMotion(MAP, pos(1, 5), 'b').row).toBe(1);
+    expect(applyMotion(MAZE, pos(1, 6), 'b').row).toBe(1);
   });
 });
 
 // ---------------------------------------------------------------------------
-// e — last cell of next word on the same row
-// Row 0: F T T F T T F F   (words: [1,2], [4,5])
-// Row 2: F F T T T F F T   (words: [2,4], [7,7])
+// e — hop right to the end of the current / next corridor
+// Row 0 corridors: [0,1] [4,6]   Row 1 corridors: [0,0] [3,4] [6,7]
 // ---------------------------------------------------------------------------
-describe('e', () => {
-  it('from start of a word → lands on end of that word', () => {
-    // cursor at col 1 (start of [1,2]), end is col 2
-    expect(applyMotion(MAP, pos(0, 1), 'e')).toEqual(pos(0, 2));
+describe('e (hop to end)', () => {
+  it('snaps to the right edge of the current corridor', () => {
+    expect(applyMotion(MAZE, pos(0, 0), 'e')).toEqual(pos(0, 1));
   });
-  it('from end of a word → lands on end of NEXT word', () => {
-    // cursor at col 2 (end of [1,2]), next word ends at col 5
-    expect(applyMotion(MAP, pos(0, 2), 'e')).toEqual(pos(0, 5));
+  it('from a corridor end → hops to the end of the next corridor', () => {
+    expect(applyMotion(MAZE, pos(0, 1), 'e')).toEqual(pos(0, 6));
   });
-  it('from blank → lands on end of next word to the right', () => {
-    // cursor at col 0 (blank), next word is [1,2] → end col 2
-    expect(applyMotion(MAP, pos(0, 0), 'e')).toEqual(pos(0, 2));
+  it('from a single-cell corridor → end of the next corridor', () => {
+    // Row 1 corridor [0,0] is one cell; next corridor [3,4] ends at 4
+    expect(applyMotion(MAZE, pos(1, 0), 'e')).toEqual(pos(1, 4));
   });
-  it('from last word (single-cell word at col 7) → lands on last cell of row', () => {
-    // Row 2: last word is [7,7]; cursor at col 7 (end), no next word
-    expect(applyMotion(MAP, pos(2, 7), 'e')).toEqual(pos(2, 7));
-  });
-  it('from last word end → stays at last cell of row', () => {
-    // cursor at col 5 (end of [4,5]), no next word → last col = 7
-    expect(applyMotion(MAP, pos(0, 5), 'e')).toEqual(pos(0, 7));
+  it('no corridor further right → rightmost floor cell', () => {
+    expect(applyMotion(MAZE, pos(0, 6), 'e')).toEqual(pos(0, 6));
   });
   it('does not wrap to another row', () => {
-    expect(applyMotion(MAP, pos(0, 2), 'e').row).toBe(0);
+    expect(applyMotion(MAZE, pos(0, 1), 'e').row).toBe(0);
   });
 });
 
 // ---------------------------------------------------------------------------
-// Edge: single-cell map (1 row × 1 col, filled)
+// Edge: single floor cell (1×1)
 // ---------------------------------------------------------------------------
-describe('single-cell map', () => {
-  const TINY = makeMap([[T]]);
+describe('single floor-cell map', () => {
+  const TINY = makeMap([[F]]);
 
-  it('h stays at (0,0)', () => expect(applyMotion(TINY, pos(0, 0), 'h')).toEqual(pos(0, 0)));
-  it('l stays at (0,0)', () => expect(applyMotion(TINY, pos(0, 0), 'l')).toEqual(pos(0, 0)));
-  it('j stays at (0,0)', () => expect(applyMotion(TINY, pos(0, 0), 'j')).toEqual(pos(0, 0)));
-  it('k stays at (0,0)', () => expect(applyMotion(TINY, pos(0, 0), 'k')).toEqual(pos(0, 0)));
-  it('w stays at (0,0)', () => expect(applyMotion(TINY, pos(0, 0), 'w')).toEqual(pos(0, 0)));
-  it('b stays at (0,0)', () => expect(applyMotion(TINY, pos(0, 0), 'b')).toEqual(pos(0, 0)));
-  it('e stays at (0,0)', () => expect(applyMotion(TINY, pos(0, 0), 'e')).toEqual(pos(0, 0)));
+  for (const m of ['h', 'j', 'k', 'l', 'w', 'b', 'e', '0', '$'] as const) {
+    it(`${m} stays at (0,0)`, () =>
+      expect(applyMotion(TINY, pos(0, 0), m)).toEqual(pos(0, 0)));
+  }
 });
 
 // ---------------------------------------------------------------------------
-// Edge: single-row map (1 row × 6 cols)
-// Row 0: T T F T T T   (words: [0,1], [3,5])
+// Edge: a fully walled row — leaps must not invent an illegal position
+// (the cursor never legally sits here in play, but the engine must be safe).
 // ---------------------------------------------------------------------------
-describe('single-row map', () => {
-  const SR = makeMap([[T, T, F, T, T, T]]);
+describe('fully walled row', () => {
+  const WALLED = makeMap([[T, T, T, T]]);
 
-  it('j stays on row 0', () => expect(applyMotion(SR, pos(0, 2), 'j').row).toBe(0));
-  it('k stays on row 0', () => expect(applyMotion(SR, pos(0, 2), 'k').row).toBe(0));
-  it('w from col 0 → col 3 (next word)', () => expect(applyMotion(SR, pos(0, 0), 'w')).toEqual(pos(0, 3)));
-  it('w from col 3 → col 5 (last cell, no further word)', () => expect(applyMotion(SR, pos(0, 3), 'w')).toEqual(pos(0, 5)));
-  it('b from col 4 → col 3 (start of current word)', () => expect(applyMotion(SR, pos(0, 4), 'b')).toEqual(pos(0, 3)));
-  it('b from col 3 → col 0 (start of prior word)', () => expect(applyMotion(SR, pos(0, 3), 'b')).toEqual(pos(0, 0)));
-  it('e from col 0 → col 1 (end of current word)', () => expect(applyMotion(SR, pos(0, 0), 'e')).toEqual(pos(0, 1)));
-  it('e from col 1 → col 5 (end of next word)', () => expect(applyMotion(SR, pos(0, 1), 'e')).toEqual(pos(0, 5)));
-});
-
-// ---------------------------------------------------------------------------
-// Edge: cursor on a blank cell — word motions still work correctly
-// Row 3: T T F T T T F F   (words: [0,1], [3,5])
-// ---------------------------------------------------------------------------
-describe('cursor on blank cell', () => {
-  it('w from blank (col 2) → next word start (col 3)', () => {
-    expect(applyMotion(MAP, pos(3, 2), 'w')).toEqual(pos(3, 3));
-  });
-  it('b from blank (col 2) → prior word start (col 0)', () => {
-    expect(applyMotion(MAP, pos(3, 2), 'b')).toEqual(pos(3, 0));
-  });
-  it('e from blank (col 2) → end of next word (col 5)', () => {
-    expect(applyMotion(MAP, pos(3, 2), 'e')).toEqual(pos(3, 5));
-  });
+  for (const m of ['w', 'b', 'e', '0', '$'] as const) {
+    it(`${m} leaves the cursor in place`, () =>
+      expect(applyMotion(WALLED, pos(0, 2), m)).toEqual(pos(0, 2)));
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -289,13 +251,13 @@ describe('cursor on blank cell', () => {
 // ---------------------------------------------------------------------------
 describe('isGoalReached', () => {
   it('returns true when cursor is at goal', () => {
-    expect(isGoalReached(MAP, MAP.goal)).toBe(true);
+    expect(isGoalReached(MAZE, MAZE.goal)).toBe(true);
   });
   it('returns false when cursor is not at goal', () => {
-    expect(isGoalReached(MAP, MAP.start)).toBe(false);
+    expect(isGoalReached(MAZE, MAZE.start)).toBe(false);
   });
   it('false for position adjacent to goal', () => {
-    const near = pos(MAP.goal.row, MAP.goal.col - 1);
-    expect(isGoalReached(MAP, near)).toBe(false);
+    const near = pos(MAZE.goal.row, MAZE.goal.col - 1);
+    expect(isGoalReached(MAZE, near)).toBe(false);
   });
 });
