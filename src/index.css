@@ -1,0 +1,22 @@
+@import 'tailwindcss';
+
+/*
+ * Base theme placeholders. The UI Designer owns the full pixel-art arcade
+ * theme — expand the @theme block with the real palette, fonts, and tokens.
+ */
+@theme {
+  --color-bg: #0b0e14;
+  --color-fg: #e6edf3;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background-color: var(--color-bg);
+  color: var(--color-fg);
+}
