@@ -11,15 +11,20 @@ export interface StoredStats {
   totalGamesPlayed: number;
 }
 
+/** Cached result of the storage probe — undefined means not yet checked. */
+let _storageAvailable: boolean | undefined;
+
 function isStorageAvailable(): boolean {
+  if (_storageAvailable !== undefined) return _storageAvailable;
   try {
     const test = '__vimrace_test__';
     localStorage.setItem(test, test);
     localStorage.removeItem(test);
-    return true;
+    _storageAvailable = true;
   } catch {
-    return false;
+    _storageAvailable = false;
   }
+  return _storageAvailable;
 }
 
 export function getHighScore(): number {

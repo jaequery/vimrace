@@ -34,8 +34,9 @@ export default function StartScreen({ game, reducedMotion }: StartScreenProps) {
         VimRace
       </h1>
 
-      <p className="text-sm text-gray-400 tracking-wide">
-        Race to the goal using Vim motions. Beat the clock.
+      <p className="text-sm text-[var(--color-text-muted)] tracking-wide text-center max-w-xs">
+        Navigate to the <span className="text-[var(--color-goal)]">&#9873; flag</span> using Vim motions before the clock runs out.
+        Clearing maps adds bonus time — fewer keystrokes earns bigger bonuses and medals.
       </p>
 
       {highScore > 0 && (
@@ -55,9 +56,9 @@ export default function StartScreen({ game, reducedMotion }: StartScreenProps) {
         Start Game
       </Button>
 
-      <p className="text-xs text-gray-500">
-        Press <kbd className="px-1 border border-gray-600 rounded">Enter</kbd> or{' '}
-        <kbd className="px-1 border border-gray-600 rounded">Space</kbd> to begin
+      <p className="text-xs text-[var(--color-text-muted)]">
+        Press <kbd className="px-1 border border-[var(--color-text-dim)] rounded">Enter</kbd> or{' '}
+        <kbd className="px-1 border border-[var(--color-text-dim)] rounded">Space</kbd> to begin
       </p>
     </div>
   );

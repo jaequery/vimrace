@@ -30,14 +30,10 @@ export default function PlayScreen({ game, reducedMotion }: PlayScreenProps) {
       </div>
 
       <div className="pb-4 px-4">
-        <details className="text-xs text-gray-500">
-          <summary className="cursor-pointer hover:text-gray-300 focus:outline-none focus:underline">
-            Key bindings
-          </summary>
-          <div className="mt-2">
-            <KeyHints />
-          </div>
-        </details>
+        <p className="text-xs text-[var(--color-text-muted)] uppercase tracking-widest mb-2 text-center">
+          Vim Motions
+        </p>
+        <KeyHints />
       </div>
     </div>
   );

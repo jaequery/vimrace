@@ -34,6 +34,8 @@ vi.mock('@/game/scoring', () => ({
 vi.mock('@/game/storage', () => ({
   getHighScore: vi.fn(() => 0),
   setHighScore: vi.fn(),
+  getStats: vi.fn(() => ({ totalMapsCleared: 0, totalGamesPlayed: 0 })),
+  setStats: vi.fn(),
 }));
 
 import App from './App';

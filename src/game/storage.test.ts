@@ -1,9 +1,25 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { getHighScore, setHighScore, getStats, setStats } from './storage';
 
 describe('storage', () => {
   beforeEach(() => {
     localStorage.clear();
+  });
+
+  describe('isStorageAvailable memoization', () => {
+    it('probes localStorage exactly once across many reads (memoized)', () => {
+      // Warm the cache with one call, then spy to confirm no further probes occur.
+      getHighScore(); // may or may not be the first call — warms cache if not already warm
+      const spy = vi.spyOn(Storage.prototype, 'setItem');
+      // All subsequent calls must use the cached result — no further probe setItem calls.
+      getHighScore();
+      getStats();
+      getHighScore();
+      getStats();
+      const probeCalls = spy.mock.calls.filter(([key]) => key === '__vimrace_test__');
+      expect(probeCalls.length).toBe(0);
+      spy.mockRestore();
+    });
   });
 
   describe('getHighScore / setHighScore', () => {

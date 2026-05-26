@@ -8,7 +8,7 @@ interface GameOverScreenProps {
 }
 
 export default function GameOverScreen({ game }: GameOverScreenProps) {
-  const { score, mapsCleared, highScore, start, reset } = game;
+  const { score, mapsCleared, highScore, lifetimeStats, start, reset } = game;
   const isNewHighScore = score > 0 && score >= highScore;
 
   // Enter or Space also restarts
@@ -46,16 +46,16 @@ export default function GameOverScreen({ game }: GameOverScreenProps) {
       <Panel>
         <dl className="flex flex-col gap-3 text-center font-mono">
           <div>
-            <dt className="text-xs text-gray-400 uppercase tracking-widest">Final Score</dt>
+            <dt className="text-xs text-[var(--color-text-muted)] uppercase tracking-widest">Final Score</dt>
             <dd className="text-3xl font-bold text-yellow-400">{score.toLocaleString()}</dd>
           </div>
           <div>
-            <dt className="text-xs text-gray-400 uppercase tracking-widest">Maps Cleared</dt>
+            <dt className="text-xs text-[var(--color-text-muted)] uppercase tracking-widest">Maps Cleared</dt>
             <dd className="text-2xl font-bold">{mapsCleared}</dd>
           </div>
           <div>
-            <dt className="text-xs text-gray-400 uppercase tracking-widest">High Score</dt>
-            <dd className="text-xl font-bold text-gray-300">{highScore.toLocaleString()}</dd>
+            <dt className="text-xs text-[var(--color-text-muted)] uppercase tracking-widest">High Score</dt>
+            <dd className="text-xl font-bold text-[var(--color-text-primary)]">{highScore.toLocaleString()}</dd>
           </div>
         </dl>
       </Panel>
@@ -66,15 +66,19 @@ export default function GameOverScreen({ game }: GameOverScreenProps) {
         </Button>
         <button
           onClick={reset}
-          className="text-xs text-gray-500 hover:text-gray-300 focus:outline-none focus:underline"
+          className="text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] focus-visible:ring-2 focus-visible:ring-[var(--color-focus)] focus-visible:outline-none rounded"
         >
           Return to Start
         </button>
       </div>
 
-      <p className="text-xs text-gray-500">
-        Press <kbd className="px-1 border border-gray-600 rounded">Enter</kbd> or{' '}
-        <kbd className="px-1 border border-gray-600 rounded">Space</kbd> to play again
+      <p className="text-xs text-[var(--color-text-dim)] font-mono">
+        Lifetime: {lifetimeStats.totalMapsCleared} maps cleared &middot; {lifetimeStats.totalGamesPlayed} games
+      </p>
+
+      <p className="text-xs text-[var(--color-text-muted)]">
+        Press <kbd className="px-1 border border-[var(--color-text-dim)] rounded">Enter</kbd> or{' '}
+        <kbd className="px-1 border border-[var(--color-text-dim)] rounded">Space</kbd> to play again
       </p>
     </div>
   );

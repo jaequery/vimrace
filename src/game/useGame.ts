@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useReducer, useRef } from 'react';
 import type { GameMap, GameStatus, MapResult, Motion, Pos } from '@/game/types';
 import { applyMotion, isGoalReached } from '@/game/vimEngine';
-import { generateMap, parKeystrokes } from '@/game/map';
+import { generateMap } from '@/game/map';
 import { mapBonus, INITIAL_CLOCK_MS, levelForMapsCleared } from '@/game/scoring';
-import { getHighScore, setHighScore } from '@/game/storage';
+import { getHighScore, setHighScore, getStats, setStats } from '@/game/storage';
+import type { StoredStats } from '@/game/storage';
 import { useKeyboard } from '@/game/useKeyboard';
 
 // ---------------------------------------------------------------------------
@@ -22,6 +23,8 @@ export interface GameState {
   maxTimeMs: number;
   lastResult: MapResult | null;
   highScore: number;
+  /** lifetime totals across all sessions (persisted to localStorage) */
+  lifetimeStats: StoredStats;
 }
 
 // ---------------------------------------------------------------------------
@@ -56,6 +59,7 @@ function makeInitialState(): GameState {
     maxTimeMs: INITIAL_CLOCK_MS,
     lastResult: null,
     highScore: getHighScore(),
+    lifetimeStats: getStats(),
   };
 }
 
@@ -68,6 +72,11 @@ function reducer(state: GameState, action: Action): GameState {
     case 'START': {
       if (state.status === 'playing') return state;
       const map = generateMap({ level: 1 });
+      const freshStats = getStats();
+      const startedStats: StoredStats = {
+        totalMapsCleared: freshStats.totalMapsCleared,
+        totalGamesPlayed: freshStats.totalGamesPlayed + 1,
+      };
       return {
         ...makeInitialState(),
         status: 'playing',
@@ -75,6 +84,7 @@ function reducer(state: GameState, action: Action): GameState {
         cursor: { ...map.start },
         timeLeftMs: INITIAL_CLOCK_MS,
         maxTimeMs: INITIAL_CLOCK_MS,
+        lifetimeStats: startedStats,
       };
     }
 
@@ -89,9 +99,9 @@ function reducer(state: GameState, action: Action): GameState {
       const newKeystrokesUsed = state.keystrokesUsed + 1;
 
       if (isGoalReached(state.map, newCursor)) {
-        // Compute bonus for clearing this map
+        // Compute bonus for clearing this map (par is pre-computed at generation)
         const result = mapBonus({
-          par: parKeystrokes(state.map),
+          par: state.map.par,
           used: newKeystrokesUsed,
           timeLeftMs: state.timeLeftMs,
           level: state.map.level,
@@ -109,6 +119,10 @@ function reducer(state: GameState, action: Action): GameState {
         const nextMap = generateMap({ level: nextLevel });
 
         const newHighScore = Math.max(newScore, state.highScore);
+        const newLifetimeStats: StoredStats = {
+          totalMapsCleared: state.lifetimeStats.totalMapsCleared + 1,
+          totalGamesPlayed: state.lifetimeStats.totalGamesPlayed,
+        };
 
         return {
           ...state,
@@ -121,6 +135,7 @@ function reducer(state: GameState, action: Action): GameState {
           maxTimeMs: Math.max(state.maxTimeMs, newTimeLeftMs),
           lastResult: result,
           highScore: newHighScore,
+          lifetimeStats: newLifetimeStats,
         };
       }
 
@@ -174,6 +189,7 @@ export interface UseGameReturn {
   maxTimeMs: number;
   lastResult: MapResult | null;
   highScore: number;
+  lifetimeStats: StoredStats;
   start: () => void;
   reset: () => void;
 }
@@ -242,6 +258,14 @@ export function useGame(): UseGameReturn {
   }, [highScore]);
 
   // -------------------------------------------------------------------------
+  // Persist lifetime stats to localStorage whenever they change
+  // -------------------------------------------------------------------------
+  const lifetimeStats = state.lifetimeStats;
+  useEffect(() => {
+    setStats(lifetimeStats);
+  }, [lifetimeStats]);
+
+  // -------------------------------------------------------------------------
   // Keyboard input — active only while playing
   // -------------------------------------------------------------------------
   const handleMotion = useCallback((motion: Motion) => {
@@ -271,6 +295,7 @@ export function useGame(): UseGameReturn {
     maxTimeMs: state.maxTimeMs,
     lastResult: state.lastResult,
     highScore: state.highScore,
+    lifetimeStats: state.lifetimeStats,
     start,
     reset,
   };
