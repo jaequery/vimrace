@@ -119,9 +119,12 @@ function pickFilled(rng: () => number, candidates: Pos[]): Pos | null {
 // BFS helpers
 // ---------------------------------------------------------------------------
 
+/** Column stride used to pack (row, col) into one integer key. Must exceed any map's column count. */
+const POS_KEY_STRIDE = 1024;
+
 function posKey(pos: Pos): number {
   // Pack row/col into a single number for O(1) visited check.
-  return pos.row * 1024 + pos.col;
+  return pos.row * POS_KEY_STRIDE + pos.col;
 }
 
 /**
@@ -129,6 +132,11 @@ function posKey(pos: Pos): number {
  * Returns the minimum motion count, or Infinity if unreachable.
  */
 export function parKeystrokes(map: GameMap): number {
+  // posKey packs col into a fixed stride; guard against silent collisions if
+  // map dimensions ever grow past it.
+  if (map.cols > POS_KEY_STRIDE) {
+    throw new Error(`map.cols (${map.cols}) exceeds POS_KEY_STRIDE (${POS_KEY_STRIDE})`);
+  }
   if (isGoalReached(map, map.start)) return 0;
 
   const visited = new Set<number>();
