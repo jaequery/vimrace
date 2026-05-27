@@ -7,12 +7,17 @@
  * Grid model (a maze):
  *   - Rows grow with level starting from MIN_ROWS.
  *   - Cols grow with level starting from MIN_COLS.
- *   - Each row scatters short "wall runs" (contiguous wall cells of length
- *     1–3) over an open floor base, separated by floor gaps of 2–4 cells, so
- *     floor dominates and the maze stays well-connected.
- *   - Start is placed near the top-left, goal near the bottom-right;
- *     both on FLOOR cells; start ≠ goal; minimum Manhattan distance
- *     increases with level.
+ *   - Each row scatters "wall runs" (contiguous wall cells) over an open floor
+ *     base, separated by floor gaps, so floor dominates and the maze stays
+ *     well-connected. Wall DENSITY scales with level: early levels are sparse
+ *     (short runs, wide gaps), later levels are denser and more maze-like
+ *     (longer runs, tighter gaps). This is a difficulty knob independent of par,
+ *     since the leap motions hop over walls regardless.
+ *   - Start and goal are BOTH placed at random floor cells anywhere on the grid
+ *     (start ≠ goal). The goal is chosen from cells at least a level-scaled
+ *     FRACTION of the farthest-reachable distance away from start, so it is
+ *     meaningfully far (and farther at higher levels) yet lands in varied,
+ *     unpredictable positions and directions — never pinned to one fixed corner.
  *   - Solvability is guaranteed: BFS is run from start; if goal is
  *     unreachable the generator retries with an incremented internal seed
  *     offset until it succeeds, falling back to an all-floor grid.
@@ -65,26 +70,56 @@ function gridSize(level: number): { rows: number; cols: number } {
 }
 
 // ---------------------------------------------------------------------------
-// Wall-run generation
+// Wall-run generation (density scales with level)
 // ---------------------------------------------------------------------------
 
 /**
- * Scatter short wall runs over an open floor row.
- * `false` = floor (walkable), `true` = wall. Returns a boolean[] of length
- * `cols`. Floor dominates so the maze stays connected; the BFS solvability
- * check in `generateMap` is the ultimate guarantee.
+ * Level at which wall density saturates. Beyond this, mazes don't get any
+ * denser — they only keep growing in size (see `gridSize`). Kept local so the
+ * generator stays decoupled from `scoring.MAX_LEVEL`.
  */
-function generateRow(rng: () => number, cols: number): boolean[] {
+const DENSITY_SATURATION_LEVEL = 12;
+
+/** Tunable per-row wall parameters: wall-run length and floor-gap ranges. */
+interface WallParams {
+  /** wall runs are randInt(1, maxRunLen) cells long */
+  maxRunLen: number;
+  /** floor gap between runs is randInt(minGap, maxGap) cells */
+  minGap: number;
+  maxGap: number;
+}
+
+/**
+ * Wall density for a level. `t` ramps 0 → 1 across levels 1..SATURATION:
+ * sparse early (short runs, wide gaps) and denser late (longer runs, tighter
+ * gaps). Floor still dominates at every level so the maze stays connected; the
+ * BFS solvability check in `generateMap` is the ultimate guarantee.
+ */
+function wallParams(level: number): WallParams {
+  const t = Math.min(1, Math.max(0, (level - 1) / (DENSITY_SATURATION_LEVEL - 1)));
+  return {
+    maxRunLen: Math.round(2 + t * 2), // 2 → 4
+    minGap: Math.max(1, Math.round(3 - t * 2)), // 3 → 1
+    maxGap: Math.round(5 - t * 2), // 5 → 3
+  };
+}
+
+/**
+ * Scatter wall runs over an open floor row using the level's density params.
+ * `false` = floor (walkable), `true` = wall. Returns a boolean[] of length
+ * `cols`.
+ */
+function generateRow(rng: () => number, cols: number, wp: WallParams): boolean[] {
   const cells: boolean[] = new Array(cols).fill(false); // start fully open
   let col = randInt(rng, 0, 2); // small random leading floor gap
 
   while (col < cols) {
-    const runLen = randInt(rng, 1, 3); // short wall run
+    const runLen = randInt(rng, 1, wp.maxRunLen); // wall run
     const end = Math.min(col + runLen - 1, cols - 1);
     for (let c = col; c <= end; c++) {
       cells[c] = true;
     }
-    col = end + 1 + randInt(rng, 2, 4); // floor gap of 2–4 before next wall
+    col = end + 1 + randInt(rng, wp.minGap, wp.maxGap); // floor gap before next wall
   }
   return cells;
 }
@@ -166,11 +201,21 @@ export function parKeystrokes(map: GameMap): number {
 // Map generation
 // ---------------------------------------------------------------------------
 
-const MIN_MANHATTAN_BASE = 6;
-const MANHATTAN_GROWTH = 3; // extra required distance per 2 levels
+/**
+ * Goal separation as a FRACTION of the farthest Manhattan distance reachable
+ * from the (random) start. Ramps from GOAL_SEP_FRAC_BASE at level 1 to
+ * GOAL_SEP_FRAC_MAX at DENSITY_SATURATION_LEVEL: the goal must always be a real
+ * trek away (and a longer one at higher levels), but because it is a fraction —
+ * not the maximum — the goal can land anywhere in a wide band of cells rather
+ * than being forced into the single farthest corner. Combined with a random
+ * start, this makes goal positions varied and unpredictable across maps.
+ */
+const GOAL_SEP_FRAC_BASE = 0.4;
+const GOAL_SEP_FRAC_MAX = 0.65;
 
-function minManhattan(level: number): number {
-  return MIN_MANHATTAN_BASE + Math.floor((level - 1) / 2) * MANHATTAN_GROWTH;
+function goalSeparationFrac(level: number): number {
+  const t = Math.min(1, Math.max(0, (level - 1) / (DENSITY_SATURATION_LEVEL - 1)));
+  return GOAL_SEP_FRAC_BASE + (GOAL_SEP_FRAC_MAX - GOAL_SEP_FRAC_BASE) * t;
 }
 
 /**
@@ -186,15 +231,16 @@ export function generateMap(opts: { level: number; seed?: number }): GameMap {
   const publicSeed = opts.seed ?? (Date.now() & 0xffffffff);
 
   const { rows, cols } = gridSize(level);
-  const minDist = minManhattan(level);
+  const wp = wallParams(level);
+  const sepFrac = goalSeparationFrac(level);
 
   for (let attempt = 0; attempt < 50; attempt++) {
     const rng = makePRNG(publicSeed + attempt * 997);
 
-    // Build grid row by row.
+    // Build grid row by row at this level's wall density.
     const grid: boolean[][] = [];
     for (let r = 0; r < rows; r++) {
-      grid.push(generateRow(rng, cols));
+      grid.push(generateRow(rng, cols, wp));
     }
 
     // Ensure at least one floor cell per row so the cursor can pass through
@@ -205,25 +251,23 @@ export function generateMap(opts: { level: number; seed?: number }): GameMap {
       }
     }
 
-    // Pick start from top-left quadrant (a floor cell).
-    const startRowHi = Math.max(0, Math.floor(rows / 3));
-    const startColHi = Math.max(0, Math.floor(cols / 3));
-    const startCandidates = floorCellsInRegion(grid, rows, cols, 0, startRowHi, 0, startColHi);
-    const start = pickRandom(rng, startCandidates);
+    // Pick start from ANY floor cell (no positional bias) so the navigation
+    // direction varies map to map.
+    const floor = floorCellsInRegion(grid, rows, cols, 0, rows - 1, 0, cols - 1);
+    const start = pickRandom(rng, floor);
     if (!start) continue;
 
-    // Pick goal from bottom-right quadrant (a floor cell), min Manhattan
-    // distance from start.
-    const goalRowLo = Math.min(rows - 1, Math.ceil(rows * 2 / 3));
-    const goalColLo = Math.min(cols - 1, Math.ceil(cols * 2 / 3));
-    const goalCandidates = floorCellsInRegion(
-      grid, rows, cols,
-      goalRowLo, rows - 1,
-      goalColLo, cols - 1,
-    ).filter(
-      (p) => Math.abs(p.row - start.row) + Math.abs(p.col - start.col) >= minDist
-        && !(p.row === start.row && p.col === start.col),
-    );
+    // Pick goal from floor cells at least `sepFrac` of the farthest reachable
+    // distance away from start. The far end always qualifies, so candidates are
+    // never empty; picking randomly within that band keeps the goal's absolute
+    // position varied rather than fixed to one corner.
+    const others = floor
+      .filter((p) => !(p.row === start.row && p.col === start.col))
+      .map((p) => ({ pos: p, dist: Math.abs(p.row - start.row) + Math.abs(p.col - start.col) }));
+    if (others.length === 0) continue;
+    const maxDist = others.reduce((m, d) => Math.max(m, d.dist), 0);
+    const minSep = Math.max(1, Math.round(sepFrac * maxDist));
+    const goalCandidates = others.filter((d) => d.dist >= minSep).map((d) => d.pos);
     const goal = pickRandom(rng, goalCandidates);
     if (!goal) continue;
 

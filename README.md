@@ -7,6 +7,10 @@ real Vim motions before the countdown runs out. Walls block you — but the Vim
 you more time, and the fewer keystrokes you use, the bigger the reward. It's a
 fast, replayable way to build Vim muscle memory.
 
+Each level ramps the challenge: mazes grow larger **and denser**, the clock
+tightens, and the ⚑ flag turns up in a different, unpredictable spot every
+run — so you can't just memorize "head for the bottom-right corner."
+
 ## How to play
 
 1. Press **Start** (or `Enter` / `Space`).
