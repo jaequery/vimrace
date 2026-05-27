@@ -119,19 +119,35 @@ export const MOTION_HELP: Record<Motion, string> = {
 
 export type Medal = 'gold' | 'silver' | 'bronze' | 'none';
 
-/** Result of clearing a single map (produced by `scoring.mapBonus`). */
-export interface MapResult {
-  /** points awarded for clearing this map */
-  points: number;
-  /** bonus time (ms) added to the countdown clock for clearing this map */
-  bonusTimeMs: number;
+/**
+ * Result of clearing one level (produced by `scoring.levelScore`).
+ *
+ * A level is a fixed sequence of mazes raced against a count-up clock; `timeMs`
+ * is the elapsed time the per-level leaderboard ranks by, `points` the score
+ * accumulated across the run.
+ */
+export interface LevelResult {
+  /** the level that was cleared (1-based) */
+  level: number;
+  /** elapsed time to clear the level (ms) — the leaderboard metric */
+  timeMs: number;
+  /** the level's time limit (ms) */
+  limitMs: number;
+  /** total keystrokes the player used across the level's mazes */
+  used: number;
+  /** total par (near-optimal) keystrokes across the level's mazes */
+  par: number;
   /** medal earned from keystroke efficiency vs. par */
   medal: Medal;
-  /** keystrokes the player actually used on this map */
-  used: number;
-  /** par (near-optimal) keystroke count for this map */
-  par: number;
+  /** score awarded for clearing this level */
+  points: number;
 }
 
-/** High-level phase of a play session. */
-export type GameStatus = 'idle' | 'playing' | 'gameover';
+/**
+ * High-level phase of a play session.
+ *   idle          — start screen
+ *   playing       — racing a level, clock counting up
+ *   levelcomplete — cleared a level under its limit
+ *   gameover      — ran out of time on a level
+ */
+export type GameStatus = 'idle' | 'playing' | 'levelcomplete' | 'gameover';

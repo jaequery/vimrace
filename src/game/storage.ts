@@ -3,12 +3,15 @@
  * Availability-safe: never throws if storage is blocked or unavailable.
  */
 
-const HIGH_SCORE_KEY = 'vimrace.highscore';
 const STATS_KEY = 'vimrace.stats';
 const USERNAME_KEY = 'vimrace.username';
+const UNLOCKED_LEVEL_KEY = 'vimrace.unlocked';
 
 /** Max username length — mirrors the server's MAX_USERNAME_LEN in api/_redis.ts. */
 export const MAX_USERNAME_LEN = 16;
+
+/** Highest level the game offers — mirrors MAX_LEVEL in scoring.ts / api/_redis.ts. */
+export const MAX_LEVEL = 20;
 
 export interface StoredStats {
   totalMapsCleared: number;
@@ -29,28 +32,6 @@ function isStorageAvailable(): boolean {
     _storageAvailable = false;
   }
   return _storageAvailable;
-}
-
-export function getHighScore(): number {
-  if (!isStorageAvailable()) return 0;
-  try {
-    const raw = localStorage.getItem(HIGH_SCORE_KEY);
-    if (raw === null) return 0;
-    const parsed = parseInt(raw, 10);
-    return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
-  } catch {
-    return 0;
-  }
-}
-
-export function setHighScore(score: number): void {
-  if (!isStorageAvailable()) return;
-  try {
-    const clamped = Math.max(0, Math.floor(score));
-    localStorage.setItem(HIGH_SCORE_KEY, String(clamped));
-  } catch {
-    // storage blocked — silently ignore
-  }
 }
 
 export function getStats(): StoredStats {
@@ -88,6 +69,34 @@ export function setStats(stats: StoredStats): void {
   if (!isStorageAvailable()) return;
   try {
     localStorage.setItem(STATS_KEY, JSON.stringify(stats));
+  } catch {
+    // storage blocked — silently ignore
+  }
+}
+
+/**
+ * Highest level the player has unlocked (cleared the one before). Starts at 1;
+ * clearing level N unlocks N+1. Clamped to [1, MAX_LEVEL]; corrupt or missing
+ * data falls back to 1 so the player can always at least play level 1.
+ */
+export function getHighestUnlockedLevel(): number {
+  if (!isStorageAvailable()) return 1;
+  try {
+    const raw = localStorage.getItem(UNLOCKED_LEVEL_KEY);
+    if (raw === null) return 1;
+    const parsed = parseInt(raw, 10);
+    if (!Number.isFinite(parsed)) return 1;
+    return Math.min(MAX_LEVEL, Math.max(1, parsed));
+  } catch {
+    return 1;
+  }
+}
+
+export function setHighestUnlockedLevel(level: number): void {
+  if (!isStorageAvailable()) return;
+  try {
+    const clamped = Math.min(MAX_LEVEL, Math.max(1, Math.floor(level)));
+    localStorage.setItem(UNLOCKED_LEVEL_KEY, String(clamped));
   } catch {
     // storage blocked — silently ignore
   }

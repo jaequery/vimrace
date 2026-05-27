@@ -1,214 +1,182 @@
 /**
- * scoring.test.ts — unit tests for mapBonus and levelForMapsCleared.
+ * scoring.test.ts — unit tests for the discrete-level, time-based scoring.
  */
 
 import { describe, it, expect } from 'vitest';
 import {
-  mapBonus,
-  levelForMapsCleared,
-  INITIAL_CLOCK_MS,
-  BASE_BONUS_MS,
-  BONUS_MS_PER_SAVED_KEYSTROKE,
-  MAX_BONUS_MS,
-  BASE_POINTS_PER_MAP,
+  levelScore,
+  medalForLevel,
+  levelLimitMs,
+  scheduledLimitMs,
+  seedForLevelMap,
+  MAPS_PER_LEVEL,
+  MAX_LEVEL,
+  BASE_POINTS_PER_LEVEL,
+  SAFETY_MS_PER_KEYSTROKE,
+  MIN_LEVEL_LIMIT_MS,
+  MAX_LEVEL_LIMIT_MS,
+  LEVEL_START_LIMIT_MS,
+  LEVEL_END_LIMIT_MS,
 } from '@/game/scoring';
 
 // ---------------------------------------------------------------------------
 // Medal thresholds
 // ---------------------------------------------------------------------------
-describe('mapBonus medal thresholds', () => {
+describe('medalForLevel', () => {
   const par = 10;
-  const time = 10_000;
-  const level = 1;
 
   it('gold when used === par (ratio 1.0)', () => {
-    expect(mapBonus({ par, used: 10, timeLeftMs: time, level }).medal).toBe('gold');
+    expect(medalForLevel(10, par)).toBe('gold');
   });
-
-  it('gold when used < par (ratio < 1.0)', () => {
-    expect(mapBonus({ par, used: 8, timeLeftMs: time, level }).medal).toBe('gold');
+  it('gold when used < par', () => {
+    expect(medalForLevel(8, par)).toBe('gold');
   });
-
-  it('silver at exactly 1.5× par (ratio 1.5)', () => {
-    expect(mapBonus({ par, used: 15, timeLeftMs: time, level }).medal).toBe('silver');
+  it('silver at exactly 1.5× par', () => {
+    expect(medalForLevel(15, par)).toBe('silver');
   });
-
-  it('silver between 1.0 and 1.5', () => {
-    expect(mapBonus({ par, used: 12, timeLeftMs: time, level }).medal).toBe('silver');
+  it('bronze at exactly 2.5× par', () => {
+    expect(medalForLevel(25, par)).toBe('bronze');
   });
-
-  it('bronze at exactly 2.5× par (ratio 2.5)', () => {
-    expect(mapBonus({ par, used: 25, timeLeftMs: time, level }).medal).toBe('bronze');
-  });
-
-  it('bronze between 1.5 and 2.5', () => {
-    expect(mapBonus({ par, used: 20, timeLeftMs: time, level }).medal).toBe('bronze');
-  });
-
   it('none above 2.5× par', () => {
-    expect(mapBonus({ par, used: 26, timeLeftMs: time, level }).medal).toBe('none');
+    expect(medalForLevel(26, par)).toBe('none');
+  });
+  it('none when par is non-positive', () => {
+    expect(medalForLevel(5, 0)).toBe('none');
   });
 });
 
 // ---------------------------------------------------------------------------
-// Bonus time
+// levelScore points
 // ---------------------------------------------------------------------------
-describe('mapBonus bonusTimeMs', () => {
-  const par = 10;
-  const level = 1;
-
-  it('equals BASE_BONUS_MS when used === par (no saved keystrokes)', () => {
-    const result = mapBonus({ par, used: par, timeLeftMs: 5_000, level });
-    expect(result.bonusTimeMs).toBe(BASE_BONUS_MS);
-  });
-
-  it('increases when fewer keystrokes are used', () => {
-    const atPar = mapBonus({ par, used: 10, timeLeftMs: 5_000, level });
-    const belowPar = mapBonus({ par, used: 7, timeLeftMs: 5_000, level });
-    expect(belowPar.bonusTimeMs).toBeGreaterThan(atPar.bonusTimeMs);
-  });
-
-  it('never exceeds MAX_BONUS_MS', () => {
-    // used=0 would save all par keystrokes; pick a large par to saturate.
-    const result = mapBonus({ par: 100, used: 0, timeLeftMs: 0, level });
-    expect(result.bonusTimeMs).toBeLessThanOrEqual(MAX_BONUS_MS);
-  });
-
-  it('equals BASE_BONUS_MS + saved*BONUS_MS_PER_SAVED_KEYSTROKE when below cap', () => {
-    const used = 5;
-    const saved = par - used; // 5
-    const expected = Math.min(BASE_BONUS_MS + saved * BONUS_MS_PER_SAVED_KEYSTROKE, MAX_BONUS_MS);
-    const result = mapBonus({ par, used, timeLeftMs: 5_000, level });
-    expect(result.bonusTimeMs).toBe(expected);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Points
-// ---------------------------------------------------------------------------
-describe('mapBonus points', () => {
-  const par = 10;
-  const level = 1;
+describe('levelScore points', () => {
+  const par = 12;
+  const limitMs = 30_000;
 
   it('are positive for any valid clear', () => {
-    const result = mapBonus({ par, used: par, timeLeftMs: 0, level });
-    expect(result.points).toBeGreaterThan(0);
+    const r = levelScore({ level: 1, used: par, par, timeMs: limitMs, limitMs });
+    expect(r.points).toBeGreaterThan(0);
   });
 
-  it('include a base proportional to level', () => {
-    const l1 = mapBonus({ par, used: par, timeLeftMs: 0, level: 1 });
-    const l2 = mapBonus({ par, used: par, timeLeftMs: 0, level: 2 });
+  it('scale with level (higher level → more points, all else equal)', () => {
+    const l1 = levelScore({ level: 1, used: par, par, timeMs: 0, limitMs });
+    const l2 = levelScore({ level: 2, used: par, par, timeMs: 0, limitMs });
     expect(l2.points).toBeGreaterThan(l1.points);
   });
 
-  it('are higher with time remaining (speed bonus)', () => {
-    const fast = mapBonus({ par, used: par, timeLeftMs: 20_000, level });
-    const slow = mapBonus({ par, used: par, timeLeftMs: 0, level });
+  it('reward finishing faster (more time left under the limit)', () => {
+    const fast = levelScore({ level: 1, used: par, par, timeMs: 2_000, limitMs });
+    const slow = levelScore({ level: 1, used: par, par, timeMs: 28_000, limitMs });
     expect(fast.points).toBeGreaterThan(slow.points);
   });
 
-  it('reflect BASE_POINTS_PER_MAP in the base', () => {
-    // At exactly par with no time left, the base should be at minimum
-    // BASE_POINTS_PER_MAP * level (efficiency multiplier at ratio=1 is 1, so eff=BASE*level too)
-    const result = mapBonus({ par, used: par, timeLeftMs: 0, level: 1 });
-    expect(result.points).toBeGreaterThanOrEqual(BASE_POINTS_PER_MAP);
+  it('reward efficiency (fewer keystrokes → more points)', () => {
+    const efficient = levelScore({ level: 3, used: par - 4, par, timeMs: 10_000, limitMs });
+    const wasteful = levelScore({ level: 3, used: par + 4, par, timeMs: 10_000, limitMs });
+    expect(efficient.points).toBeGreaterThan(wasteful.points);
+  });
+
+  it('include at least the base reward at par with no time left', () => {
+    const r = levelScore({ level: 1, used: par, par, timeMs: limitMs, limitMs });
+    // base + eff(=BASE at par) → at least BASE_POINTS_PER_LEVEL
+    expect(r.points).toBeGreaterThanOrEqual(BASE_POINTS_PER_LEVEL);
+  });
+
+  it('echo level/time/used/par/limit back in the result', () => {
+    const r = levelScore({ level: 4, used: 7, par: 9, timeMs: 5_000, limitMs: 20_000 });
+    expect(r).toMatchObject({ level: 4, used: 7, par: 9, timeMs: 5_000, limitMs: 20_000 });
+    expect(r.medal).toBe('gold'); // 7/9 < 1.0
   });
 });
 
 // ---------------------------------------------------------------------------
-// Monotonicity — fewer keystrokes must never yield worse reward
+// Time limit
 // ---------------------------------------------------------------------------
-describe('mapBonus monotonicity', () => {
-  const par = 10;
-  const level = 3;
-  const time = 15_000;
-
-  it('more efficient (fewer keystrokes) never yields fewer points', () => {
-    for (let used = 1; used <= 30; used++) {
-      const fewer = mapBonus({ par, used: used - 1 >= 1 ? used - 1 : 1, timeLeftMs: time, level });
-      const more = mapBonus({ par, used, timeLeftMs: time, level });
-      if (used > 1) {
-        expect(fewer.points).toBeGreaterThanOrEqual(more.points);
-      }
-    }
+describe('scheduledLimitMs', () => {
+  it('starts generous and ends tight', () => {
+    expect(scheduledLimitMs(1)).toBe(LEVEL_START_LIMIT_MS);
+    expect(scheduledLimitMs(MAX_LEVEL)).toBe(LEVEL_END_LIMIT_MS);
   });
-
-  it('more efficient never yields less bonus time', () => {
-    for (let used = 1; used <= 30; used++) {
-      const fewer = mapBonus({ par, used: used - 1 >= 1 ? used - 1 : 1, timeLeftMs: time, level });
-      const more = mapBonus({ par, used, timeLeftMs: time, level });
-      if (used > 1) {
-        expect(fewer.bonusTimeMs).toBeGreaterThanOrEqual(more.bonusTimeMs);
-      }
-    }
-  });
-
-  it('at-par beats over-par on points', () => {
-    const atPar = mapBonus({ par, used: par, timeLeftMs: time, level });
-    const overPar = mapBonus({ par, used: par + 5, timeLeftMs: time, level });
-    expect(atPar.points).toBeGreaterThan(overPar.points);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// MapResult fields are echoed back
-// ---------------------------------------------------------------------------
-describe('mapBonus result fields', () => {
-  it('echoes used and par correctly', () => {
-    const result = mapBonus({ par: 8, used: 6, timeLeftMs: 5_000, level: 2 });
-    expect(result.used).toBe(6);
-    expect(result.par).toBe(8);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// levelForMapsCleared ramp
-// ---------------------------------------------------------------------------
-describe('levelForMapsCleared', () => {
-  it('starts at level 1 for 0 maps cleared', () => {
-    expect(levelForMapsCleared(0)).toBe(1);
-  });
-
-  it('stays at level 1 for maps 0–2', () => {
-    expect(levelForMapsCleared(1)).toBe(1);
-    expect(levelForMapsCleared(2)).toBe(1);
-  });
-
-  it('advances to level 2 at 3 maps cleared', () => {
-    expect(levelForMapsCleared(3)).toBe(2);
-  });
-
-  it('advances to level 3 at 6 maps cleared', () => {
-    expect(levelForMapsCleared(6)).toBe(3);
-  });
-
-  it('caps at level 20', () => {
-    expect(levelForMapsCleared(1000)).toBe(20);
-  });
-
-  it('is non-decreasing', () => {
-    let prev = levelForMapsCleared(0);
-    for (let n = 1; n <= 100; n++) {
-      const cur = levelForMapsCleared(n);
-      expect(cur).toBeGreaterThanOrEqual(prev);
+  it('is monotonically non-increasing across levels', () => {
+    let prev = scheduledLimitMs(1);
+    for (let lvl = 2; lvl <= MAX_LEVEL; lvl++) {
+      const cur = scheduledLimitMs(lvl);
+      expect(cur).toBeLessThanOrEqual(prev);
       prev = cur;
     }
   });
 });
 
+describe('levelLimitMs', () => {
+  it('follows the schedule for normal (small) par values', () => {
+    // Vim leaps keep par tiny, so the schedule dominates: same level, same limit.
+    expect(levelLimitMs(1, 8)).toBe(scheduledLimitMs(1));
+    expect(levelLimitMs(1, 11)).toBe(scheduledLimitMs(1));
+  });
+
+  it('shrinks overall from level 1 to the final level', () => {
+    expect(levelLimitMs(1, 9)).toBeGreaterThan(levelLimitMs(MAX_LEVEL, 9));
+  });
+
+  it('stays within the absolute clamps', () => {
+    for (let lvl = 1; lvl <= MAX_LEVEL; lvl++) {
+      for (const par of [1, 10, 30, 100, 1000]) {
+        const limit = levelLimitMs(lvl, par);
+        expect(limit).toBeGreaterThanOrEqual(MIN_LEVEL_LIMIT_MS);
+        expect(limit).toBeLessThanOrEqual(MAX_LEVEL_LIMIT_MS);
+      }
+    }
+  });
+
+  it('bumps up to keep an unusually long optimal path winnable', () => {
+    // A pathological par far exceeds the schedule → safety floor kicks in.
+    const par = 60;
+    expect(levelLimitMs(MAX_LEVEL, par)).toBeGreaterThanOrEqual(
+      Math.min(MAX_LEVEL_LIMIT_MS, par * SAFETY_MS_PER_KEYSTROKE),
+    );
+  });
+});
+
 // ---------------------------------------------------------------------------
-// Exported constants sanity
+// Deterministic seeds
+// ---------------------------------------------------------------------------
+describe('seedForLevelMap', () => {
+  it('is deterministic for the same (level, index)', () => {
+    expect(seedForLevelMap(3, 1)).toBe(seedForLevelMap(3, 1));
+  });
+  it('differs across indices within a level', () => {
+    const seeds = new Set([
+      seedForLevelMap(5, 0),
+      seedForLevelMap(5, 1),
+      seedForLevelMap(5, 2),
+    ]);
+    expect(seeds.size).toBe(3);
+  });
+  it('differs across levels for the same index', () => {
+    expect(seedForLevelMap(1, 0)).not.toBe(seedForLevelMap(2, 0));
+  });
+  it('is always a positive 32-bit integer', () => {
+    for (let lvl = 1; lvl <= MAX_LEVEL; lvl++) {
+      for (let i = 0; i < MAPS_PER_LEVEL; i++) {
+        const seed = seedForLevelMap(lvl, i);
+        expect(Number.isInteger(seed)).toBe(true);
+        expect(seed).toBeGreaterThan(0);
+      }
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Constants sanity
 // ---------------------------------------------------------------------------
 describe('exported constants', () => {
-  it('INITIAL_CLOCK_MS is positive', () => {
-    expect(INITIAL_CLOCK_MS).toBeGreaterThan(0);
+  it('MAPS_PER_LEVEL is a positive integer', () => {
+    expect(Number.isInteger(MAPS_PER_LEVEL)).toBe(true);
+    expect(MAPS_PER_LEVEL).toBeGreaterThan(0);
   });
-
-  it('BASE_BONUS_MS is positive', () => {
-    expect(BASE_BONUS_MS).toBeGreaterThan(0);
+  it('MAX_LEVEL is at least 1', () => {
+    expect(MAX_LEVEL).toBeGreaterThanOrEqual(1);
   });
-
-  it('MAX_BONUS_MS >= BASE_BONUS_MS', () => {
-    expect(MAX_BONUS_MS).toBeGreaterThanOrEqual(BASE_BONUS_MS);
+  it('MIN_LEVEL_LIMIT_MS <= MAX_LEVEL_LIMIT_MS', () => {
+    expect(MIN_LEVEL_LIMIT_MS).toBeLessThanOrEqual(MAX_LEVEL_LIMIT_MS);
   });
 });

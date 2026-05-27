@@ -1,5 +1,12 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { getHighScore, setHighScore, getStats, setStats } from './storage';
+import {
+  getStats,
+  setStats,
+  getUsername,
+  getHighestUnlockedLevel,
+  setHighestUnlockedLevel,
+  MAX_LEVEL,
+} from './storage';
 
 describe('storage', () => {
   beforeEach(() => {
@@ -9,42 +16,16 @@ describe('storage', () => {
   describe('isStorageAvailable memoization', () => {
     it('probes localStorage exactly once across many reads (memoized)', () => {
       // Warm the cache with one call, then spy to confirm no further probes occur.
-      getHighScore(); // may or may not be the first call — warms cache if not already warm
+      getStats(); // may or may not be the first call — warms cache if not already warm
       const spy = vi.spyOn(Storage.prototype, 'setItem');
       // All subsequent calls must use the cached result — no further probe setItem calls.
-      getHighScore();
       getStats();
-      getHighScore();
+      getUsername();
+      getHighestUnlockedLevel();
       getStats();
       const probeCalls = spy.mock.calls.filter(([key]) => key === '__vimrace_test__');
       expect(probeCalls.length).toBe(0);
       spy.mockRestore();
-    });
-  });
-
-  describe('getHighScore / setHighScore', () => {
-    it('returns 0 when nothing is stored', () => {
-      expect(getHighScore()).toBe(0);
-    });
-
-    it('round-trips a positive integer', () => {
-      setHighScore(1234);
-      expect(getHighScore()).toBe(1234);
-    });
-
-    it('clamps negative values to 0', () => {
-      setHighScore(-50);
-      expect(getHighScore()).toBe(0);
-    });
-
-    it('floors floating-point values', () => {
-      setHighScore(99.9);
-      expect(getHighScore()).toBe(99);
-    });
-
-    it('returns 0 for corrupt data', () => {
-      localStorage.setItem('vimrace.highscore', 'not-a-number');
-      expect(getHighScore()).toBe(0);
     });
   });
 
@@ -74,6 +55,32 @@ describe('storage', () => {
       const stats = getStats();
       expect(stats.totalMapsCleared).toBe(0);
       expect(stats.totalGamesPlayed).toBe(0);
+    });
+  });
+
+  describe('getHighestUnlockedLevel / setHighestUnlockedLevel', () => {
+    it('defaults to level 1 when nothing is stored', () => {
+      expect(getHighestUnlockedLevel()).toBe(1);
+    });
+
+    it('round-trips a valid level', () => {
+      setHighestUnlockedLevel(7);
+      expect(getHighestUnlockedLevel()).toBe(7);
+    });
+
+    it('clamps below 1 up to 1', () => {
+      setHighestUnlockedLevel(0);
+      expect(getHighestUnlockedLevel()).toBe(1);
+    });
+
+    it('clamps above MAX_LEVEL down to MAX_LEVEL', () => {
+      setHighestUnlockedLevel(999);
+      expect(getHighestUnlockedLevel()).toBe(MAX_LEVEL);
+    });
+
+    it('falls back to 1 for corrupt data', () => {
+      localStorage.setItem('vimrace.unlocked', 'not-a-number');
+      expect(getHighestUnlockedLevel()).toBe(1);
     });
   });
 });

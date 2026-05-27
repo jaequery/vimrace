@@ -2,6 +2,7 @@ import type { UseGameReturn } from '@/game/useGame';
 import Grid from '@/components/Grid';
 import Hud from '@/components/Hud';
 import KeyHints from '@/components/KeyHints';
+import RivalsPanel from '@/components/RivalsPanel';
 
 interface PlayScreenProps {
   game: UseGameReturn;
@@ -9,7 +10,7 @@ interface PlayScreenProps {
 }
 
 export default function PlayScreen({ game, reducedMotion }: PlayScreenProps) {
-  const { map, cursor, score, mapsCleared, timeLeftMs, maxTimeMs, lastResult } = game;
+  const { map, cursor, score, level, mapIndex, mapsPerLevel, elapsedMs, limitMs, username } = game;
 
   return (
     <div
@@ -17,26 +18,29 @@ export default function PlayScreen({ game, reducedMotion }: PlayScreenProps) {
       role="main"
       aria-label="VimRace — playing"
     >
-      {/* Brief white flash on each map clear — remounts (re-fires) on every
-          increment of mapsCleared. Auto-disabled under prefers-reduced-motion. */}
-      {mapsCleared > 0 && (
+      {/* Brief white flash on each maze clear within a level — remounts (re-fires)
+          whenever the maze index advances. Auto-disabled under prefers-reduced-motion. */}
+      {mapIndex > 0 && (
         <div
-          key={mapsCleared}
+          key={`${level}-${mapIndex}`}
           aria-hidden="true"
           className="pointer-events-none fixed inset-0 z-40 animate-screen-flash"
         />
       )}
 
       <Hud
+        level={level}
+        mapIndex={mapIndex}
+        mapsPerLevel={mapsPerLevel}
+        elapsedMs={elapsedMs}
+        limitMs={limitMs}
         score={score}
-        mapsCleared={mapsCleared}
-        timeLeftMs={timeLeftMs}
-        maxTimeMs={maxTimeMs}
-        lastResult={lastResult}
       />
 
-      <div className="w-full flex-1 flex items-center justify-center px-4">
+      {/* Maze with the live rivals standings alongside — race the leaders. */}
+      <div className="w-full flex-1 flex flex-wrap items-center justify-center gap-6 px-4">
         <Grid map={map} cursor={cursor} reducedMotion={reducedMotion} />
+        <RivalsPanel level={level} elapsedMs={elapsedMs} currentUsername={username} />
       </div>
 
       <div className="pb-4 px-4">

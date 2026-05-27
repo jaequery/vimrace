@@ -1,19 +1,25 @@
 /**
- * POST /api/score — record a player's best score per level.
+ * POST /api/score — record a finished run.
  *
- * Body: { username: string, scoresByLevel: { [level: number|string]: number } }
+ * Body: {
+ *   username: string,
+ *   timesByLevel?: { [level: number|string]: number },  // ms, lower is better
+ *   score?: number                                       // overall run score
+ * }
  *
- * For each (level, score) pair we ZADD into that level's sorted set with the
- * `GT` flag, so a player's entry only ever moves up. Invalid entries are
- * skipped rather than failing the whole request; a request with no valid
- * entries is a 400.
+ * Per-level times ZADD into that level's sorted set with the `LT` flag, so a
+ * player's time only ever improves (gets smaller). The overall score ZADDs into
+ * the overall set with `GT`, so it only ever moves up. Invalid entries are
+ * skipped; a request with nothing valid to write is a 400.
  */
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import {
   getRedis,
   levelKey,
+  overallKey,
   normalizeLevel,
   normalizeScore,
+  normalizeTimeMs,
   normalizeUsername,
 } from './_redis';
 
@@ -43,7 +49,11 @@ export default async function handler(
     return;
   }
 
-  const { username: rawUsername, scoresByLevel } = body as Record<string, unknown>;
+  const {
+    username: rawUsername,
+    timesByLevel,
+    score: rawScore,
+  } = body as Record<string, unknown>;
 
   const username = normalizeUsername(rawUsername);
   if (!username) {
@@ -51,35 +61,42 @@ export default async function handler(
     return;
   }
 
-  if (scoresByLevel === null || typeof scoresByLevel !== 'object') {
-    res.status(400).json({ error: 'scoresByLevel must be an object' });
-    return;
+  // Build the list of valid (level, timeMs) writes.
+  const timeWrites: { level: number; timeMs: number }[] = [];
+  if (timesByLevel !== null && typeof timesByLevel === 'object') {
+    for (const [rawLevel, rawTime] of Object.entries(
+      timesByLevel as Record<string, unknown>,
+    )) {
+      const level = normalizeLevel(rawLevel);
+      const timeMs = normalizeTimeMs(rawTime);
+      if (level !== null && timeMs !== null) timeWrites.push({ level, timeMs });
+    }
   }
 
-  // Build the list of valid (level, score) writes.
-  const writes: { level: number; score: number }[] = [];
-  for (const [rawLevel, rawScore] of Object.entries(
-    scoresByLevel as Record<string, unknown>,
-  )) {
-    const level = normalizeLevel(rawLevel);
-    const score = normalizeScore(rawScore);
-    if (level !== null && score !== null) writes.push({ level, score });
-  }
+  const score = normalizeScore(rawScore);
 
-  if (writes.length === 0) {
-    res.status(400).json({ error: 'No valid score entries' });
+  if (timeWrites.length === 0 && score === null) {
+    res.status(400).json({ error: 'No valid time or score entries' });
     return;
   }
 
   try {
     const redis = getRedis();
-    // GT: only update if the new score is greater than the current one.
-    await Promise.all(
-      writes.map(({ level, score }) =>
-        redis.zadd(levelKey(level), { gt: true }, { score, member: username }),
-      ),
+    const ops: Promise<unknown>[] = timeWrites.map(({ level, timeMs }) =>
+      // LT: only update if the new time is *less* than the current one.
+      redis.zadd(levelKey(level), { lt: true }, { score: timeMs, member: username }),
     );
-    res.status(200).json({ ok: true, username, recorded: writes.length });
+    if (score !== null) {
+      // GT: only update if the new score is *greater* than the current one.
+      ops.push(redis.zadd(overallKey(), { gt: true }, { score, member: username }));
+    }
+    await Promise.all(ops);
+    res.status(200).json({
+      ok: true,
+      username,
+      recordedTimes: timeWrites.length,
+      recordedScore: score !== null,
+    });
   } catch (err) {
     console.error('[api/score] redis error', err);
     res.status(502).json({ error: 'Leaderboard storage unavailable' });

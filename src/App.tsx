@@ -2,6 +2,7 @@ import { useReducedMotion } from './hooks/useReducedMotion';
 import { useGame } from '@/game/useGame';
 import StartScreen from '@/screens/StartScreen';
 import PlayScreen from '@/screens/PlayScreen';
+import LevelCompleteScreen from '@/screens/LevelCompleteScreen';
 import GameOverScreen from '@/screens/GameOverScreen';
 
 /**
@@ -30,6 +31,7 @@ export default function App() {
         {game.status === 'playing' && (
           <PlayScreen game={game} reducedMotion={reducedMotion} />
         )}
+        {game.status === 'levelcomplete' && <LevelCompleteScreen game={game} />}
         {game.status === 'gameover' && <GameOverScreen game={game} />}
       </div>
     </>

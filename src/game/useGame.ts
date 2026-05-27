@@ -1,21 +1,27 @@
 import { useCallback, useEffect, useReducer, useRef } from 'react';
-import type { GameMap, GameStatus, MapResult, Motion, Pos } from '@/game/types';
+import type { GameMap, GameStatus, LevelResult, Motion, Pos } from '@/game/types';
 import { applyMotion, isGoalReached } from '@/game/vimEngine';
 import { generateMap } from '@/game/map';
-import { mapBonus, INITIAL_CLOCK_MS, levelForMapsCleared } from '@/game/scoring';
 import {
-  getHighScore,
-  setHighScore,
+  MAPS_PER_LEVEL,
+  MAX_LEVEL,
+  levelLimitMs,
+  levelScore,
+  seedForLevelMap,
+} from '@/game/scoring';
+import {
   getStats,
   setStats,
   getUsername,
   setUsername as persistUsername,
+  getHighestUnlockedLevel,
+  setHighestUnlockedLevel,
   normalizeUsername,
 } from '@/game/storage';
 import type { StoredStats } from '@/game/storage';
 import { useKeyboard } from '@/game/useKeyboard';
-import { submitScores } from '@/game/leaderboard';
-import type { ScoresByLevel } from '@/game/leaderboard';
+import { submitRun, fetchHighScore } from '@/game/leaderboard';
+import type { TimesByLevel } from '@/game/leaderboard';
 
 // ---------------------------------------------------------------------------
 // State shape
@@ -23,24 +29,36 @@ import type { ScoresByLevel } from '@/game/leaderboard';
 
 export interface GameState {
   status: GameStatus;
-  map: GameMap;
+  /** the level currently being played / just played (1-based) */
+  level: number;
+  /** the fixed sequence of mazes for `level` (deterministic per level) */
+  maps: GameMap[];
+  /** which maze within the level the player is on (0-based) */
+  mapIndex: number;
   cursor: Pos;
+  /** elapsed time this level (ms) — counts UP from 0 */
+  elapsedMs: number;
+  /** time limit for this level (ms) — run ends if elapsed reaches it */
+  limitMs: number;
+  /** summed par across the level's mazes */
+  parTotal: number;
+  /** total keystrokes used across the level's mazes so far */
+  usedTotal: number;
+  /** accumulated run score */
   score: number;
-  mapsCleared: number;
-  /** keystrokes used on the current map (reset each map) */
-  keystrokesUsed: number;
-  timeLeftMs: number;
-  maxTimeMs: number;
-  lastResult: MapResult | null;
   highScore: number;
-  /** high score as it stood when the current run began — used to detect a *new* record (not a tie) */
+  /** high score as it stood when the current run began — to detect a *new* record */
   runStartHighScore: number;
+  /** result of the most recently cleared level (for the level-complete screen) */
+  lastResult: LevelResult | null;
   /** lifetime totals across all sessions (persisted to localStorage) */
   lifetimeStats: StoredStats;
   /** player handle for the leaderboard (persisted to localStorage) */
   username: string;
-  /** best run-score reached at each level during the current run (level → score) */
-  scoresByLevel: ScoresByLevel;
+  /** best (lowest) completion time reached at each level during the current run */
+  timesByLevel: TimesByLevel;
+  /** highest level the player may start from (persisted; clearing N unlocks N+1) */
+  highestUnlockedLevel: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -48,39 +66,52 @@ export interface GameState {
 // ---------------------------------------------------------------------------
 
 type Action =
-  | { type: 'START' }
+  | { type: 'START'; level: number }
+  | { type: 'NEXT_LEVEL' }
   | { type: 'APPLY_MOTION'; motion: Motion }
   | { type: 'TICK'; deltaMs: number }
-  | { type: 'GAME_OVER' }
   | { type: 'RESET' }
-  | { type: 'SET_USERNAME'; username: string };
+  | { type: 'SET_USERNAME'; username: string }
+  // High score comes from the server (Redis), never localStorage.
+  // `replace` sets it exactly (on identity change); otherwise it only ratchets up.
+  | { type: 'SET_HIGH_SCORE'; highScore: number; replace?: boolean };
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-function makeInitialMap(): GameMap {
-  return generateMap({ level: 1 });
+/** Build a level: its fixed mazes, total par, and time limit. */
+function buildLevel(level: number): { maps: GameMap[]; parTotal: number; limitMs: number } {
+  const maps: GameMap[] = [];
+  for (let i = 0; i < MAPS_PER_LEVEL; i++) {
+    maps.push(generateMap({ level, seed: seedForLevelMap(level, i) }));
+  }
+  const parTotal = maps.reduce((sum, m) => sum + m.par, 0);
+  return { maps, parTotal, limitMs: levelLimitMs(level, parTotal) };
 }
 
 function makeInitialState(): GameState {
-  const map = makeInitialMap();
-  const highScore = getHighScore();
+  const { maps, parTotal, limitMs } = buildLevel(1);
+  // High score starts at 0 and is loaded from the server once a username is
+  // known (see the fetch effect below) — it is never read from localStorage.
   return {
     status: 'idle',
-    map,
-    cursor: { ...map.start },
+    level: 1,
+    maps,
+    mapIndex: 0,
+    cursor: { ...maps[0].start },
+    elapsedMs: 0,
+    limitMs,
+    parTotal,
+    usedTotal: 0,
     score: 0,
-    mapsCleared: 0,
-    keystrokesUsed: 0,
-    timeLeftMs: INITIAL_CLOCK_MS,
-    maxTimeMs: INITIAL_CLOCK_MS,
+    highScore: 0,
+    runStartHighScore: 0,
     lastResult: null,
-    highScore,
-    runStartHighScore: highScore,
     lifetimeStats: getStats(),
     username: getUsername(),
-    scoresByLevel: {},
+    timesByLevel: {},
+    highestUnlockedLevel: getHighestUnlockedLevel(),
   };
 }
 
@@ -91,135 +122,153 @@ function makeInitialState(): GameState {
 function reducer(state: GameState, action: Action): GameState {
   switch (action.type) {
     case 'START': {
-      if (state.status === 'playing') return state;
-      // Build the playing state directly — no I/O and no throwaway generateMap
-      // (calling makeInitialState() here would double-generate under StrictMode).
-      const map = generateMap({ level: 1 });
+      // Begin a *fresh run* at the chosen level (clamped to what's unlocked).
+      const startLevel = Math.min(
+        Math.max(1, Math.floor(action.level)),
+        state.highestUnlockedLevel,
+      );
+      const { maps, parTotal, limitMs } = buildLevel(startLevel);
       return {
+        ...state,
         status: 'playing',
-        map,
-        cursor: { ...map.start },
+        level: startLevel,
+        maps,
+        mapIndex: 0,
+        cursor: { ...maps[0].start },
+        elapsedMs: 0,
+        limitMs,
+        parTotal,
+        usedTotal: 0,
         score: 0,
-        mapsCleared: 0,
-        keystrokesUsed: 0,
-        timeLeftMs: INITIAL_CLOCK_MS,
-        maxTimeMs: INITIAL_CLOCK_MS,
-        lastResult: null,
-        highScore: state.highScore,
         runStartHighScore: state.highScore,
+        lastResult: null,
         lifetimeStats: {
           totalMapsCleared: state.lifetimeStats.totalMapsCleared,
           totalGamesPlayed: state.lifetimeStats.totalGamesPlayed + 1,
         },
-        username: state.username,
-        scoresByLevel: {},
+        timesByLevel: {},
+      };
+    }
+
+    case 'NEXT_LEVEL': {
+      // Continue the *same run* into the next level — score and times carry over.
+      if (state.status !== 'levelcomplete') return state;
+      const next = Math.min(state.level + 1, MAX_LEVEL);
+      const { maps, parTotal, limitMs } = buildLevel(next);
+      return {
+        ...state,
+        status: 'playing',
+        level: next,
+        maps,
+        mapIndex: 0,
+        cursor: { ...maps[0].start },
+        elapsedMs: 0,
+        limitMs,
+        parTotal,
+        usedTotal: 0,
+        lastResult: null,
       };
     }
 
     case 'RESET': {
-      // Preserve the player's handle across a return-to-start.
-      return { ...makeInitialState(), username: state.username };
+      // Back to the start screen; preserve the player's handle and their
+      // server-loaded high score (it isn't re-fetched on a same-name reset).
+      return {
+        ...makeInitialState(),
+        username: state.username,
+        highScore: state.highScore,
+        runStartHighScore: state.highScore,
+      };
     }
 
     case 'SET_USERNAME': {
       return { ...state, username: normalizeUsername(action.username) };
     }
 
+    case 'SET_HIGH_SCORE': {
+      const next = action.replace
+        ? action.highScore
+        : Math.max(state.highScore, action.highScore);
+      return next === state.highScore ? state : { ...state, highScore: next };
+    }
+
     case 'APPLY_MOTION': {
       if (state.status !== 'playing') return state;
 
-      const newCursor = applyMotion(state.map, state.cursor, action.motion);
-      const newKeystrokesUsed = state.keystrokesUsed + 1;
+      const currentMap = state.maps[state.mapIndex];
+      const newCursor = applyMotion(currentMap, state.cursor, action.motion);
+      const newUsedTotal = state.usedTotal + 1;
 
-      if (isGoalReached(state.map, newCursor)) {
-        // Compute bonus for clearing this map (par is pre-computed at generation)
-        const result = mapBonus({
-          par: state.map.par,
-          used: newKeystrokesUsed,
-          timeLeftMs: state.timeLeftMs,
-          level: state.map.level,
-        });
-
-        const newScore = state.score + result.points;
-        const newMapsCleared = state.mapsCleared + 1;
-        const newTimeLeftMs = Math.min(
-          state.timeLeftMs + result.bonusTimeMs,
-          // Cap at some generous ceiling to keep game fair (3x INITIAL_CLOCK_MS)
-          INITIAL_CLOCK_MS * 3,
-        );
-
-        const nextLevel = levelForMapsCleared(newMapsCleared);
-        const nextMap = generateMap({ level: nextLevel });
-
-        const newHighScore = Math.max(newScore, state.highScore);
-        const newLifetimeStats: StoredStats = {
+      if (isGoalReached(currentMap, newCursor)) {
+        const newLifetime: StoredStats = {
           totalMapsCleared: state.lifetimeStats.totalMapsCleared + 1,
           totalGamesPlayed: state.lifetimeStats.totalGamesPlayed,
         };
 
-        // Record the run-total for the level of the map just cleared. Score
-        // only grows within a run, so the max across a level's maps is the
-        // total after its last clear — the player's "best at this level".
-        const clearedLevel = state.map.level;
-        const newScoresByLevel: ScoresByLevel = {
-          ...state.scoresByLevel,
-          [clearedLevel]: Math.max(state.scoresByLevel[clearedLevel] ?? 0, newScore),
+        // More mazes left in this level → advance to the next one, clock running.
+        if (state.mapIndex < MAPS_PER_LEVEL - 1) {
+          const nextIndex = state.mapIndex + 1;
+          return {
+            ...state,
+            mapIndex: nextIndex,
+            cursor: { ...state.maps[nextIndex].start },
+            usedTotal: newUsedTotal,
+            lifetimeStats: newLifetime,
+          };
+        }
+
+        // Last maze cleared → level complete. Lock in the time, award score.
+        const result = levelScore({
+          level: state.level,
+          used: newUsedTotal,
+          par: state.parTotal,
+          timeMs: state.elapsedMs,
+          limitMs: state.limitMs,
+        });
+        const newScore = state.score + result.points;
+        const newHighScore = Math.max(newScore, state.highScore);
+        const prevBest = state.timesByLevel[state.level];
+        const newTimesByLevel: TimesByLevel = {
+          ...state.timesByLevel,
+          [state.level]:
+            prevBest === undefined ? state.elapsedMs : Math.min(prevBest, state.elapsedMs),
         };
+        const newUnlocked = Math.min(
+          MAX_LEVEL,
+          Math.max(state.highestUnlockedLevel, state.level + 1),
+        );
 
         return {
           ...state,
-          map: nextMap,
-          cursor: { ...nextMap.start },
+          status: 'levelcomplete',
+          usedTotal: newUsedTotal,
           score: newScore,
-          mapsCleared: newMapsCleared,
-          keystrokesUsed: 0,
-          timeLeftMs: newTimeLeftMs,
-          maxTimeMs: Math.max(state.maxTimeMs, newTimeLeftMs),
-          lastResult: result,
           highScore: newHighScore,
-          lifetimeStats: newLifetimeStats,
-          scoresByLevel: newScoresByLevel,
+          lastResult: result,
+          timesByLevel: newTimesByLevel,
+          highestUnlockedLevel: newUnlocked,
+          lifetimeStats: newLifetime,
         };
       }
 
-      return {
-        ...state,
-        cursor: newCursor,
-        keystrokesUsed: newKeystrokesUsed,
-      };
+      return { ...state, cursor: newCursor, usedTotal: newUsedTotal };
     }
 
     case 'TICK': {
       if (state.status !== 'playing') return state;
 
-      const newTimeLeftMs = Math.max(0, state.timeLeftMs - action.deltaMs);
-
-      if (newTimeLeftMs <= 0) {
-        // Will trigger GAME_OVER on next render via useEffect
-        return { ...state, timeLeftMs: 0 };
+      const newElapsed = state.elapsedMs + action.deltaMs;
+      if (newElapsed >= state.limitMs) {
+        // Out of time — the run ends on this level.
+        const newHighScore = Math.max(state.score, state.highScore);
+        return {
+          ...state,
+          status: 'gameover',
+          elapsedMs: state.limitMs,
+          highScore: newHighScore,
+        };
       }
-
-      return { ...state, timeLeftMs: newTimeLeftMs };
-    }
-
-    case 'GAME_OVER': {
-      if (state.status !== 'playing') return state;
-      const newHighScore = Math.max(state.score, state.highScore);
-      // Credit the level the player died on with their final score, so the
-      // furthest level reached always appears on its board — even with no
-      // clears there (e.g. ran out of time on the first map of a new level).
-      const reachedLevel = state.map.level;
-      const newScoresByLevel: ScoresByLevel = {
-        ...state.scoresByLevel,
-        [reachedLevel]: Math.max(state.scoresByLevel[reachedLevel] ?? 0, state.score),
-      };
-      return {
-        ...state,
-        status: 'gameover',
-        timeLeftMs: 0,
-        highScore: newHighScore,
-        scoresByLevel: newScoresByLevel,
-      };
+      return { ...state, elapsedMs: newElapsed };
     }
 
     default:
@@ -233,22 +282,33 @@ function reducer(state: GameState, action: Action): GameState {
 
 export interface UseGameReturn {
   status: GameStatus;
+  level: number;
+  /** the maze the player is currently on */
   map: GameMap;
+  /** which maze within the level (0-based) */
+  mapIndex: number;
+  /** mazes per level (constant; for "maze x / N" display) */
+  mapsPerLevel: number;
   cursor: Pos;
+  /** elapsed time this level (ms), counting up */
+  elapsedMs: number;
+  /** time limit for this level (ms) */
+  limitMs: number;
   score: number;
-  mapsCleared: number;
-  timeLeftMs: number;
-  maxTimeMs: number;
-  lastResult: MapResult | null;
   highScore: number;
-  /** high score when this run began — compare final score against this to detect a new record */
+  /** high score when this run began — compare final score against this for a new record */
   runStartHighScore: number;
+  /** result of the most recently cleared level */
+  lastResult: LevelResult | null;
   lifetimeStats: StoredStats;
-  /** player handle for the leaderboard */
   username: string;
-  /** best run-score reached at each level during the current run (level → score) */
-  scoresByLevel: ScoresByLevel;
-  start: () => void;
+  /** best completion time reached at each level during the current run */
+  timesByLevel: TimesByLevel;
+  highestUnlockedLevel: number;
+  /** start a fresh run at the given level (defaults to level 1) */
+  start: (level?: number) => void;
+  /** continue the current run into the next level (from a level-complete screen) */
+  nextLevel: () => void;
   reset: () => void;
   setUsername: (username: string) => void;
 }
@@ -257,13 +317,11 @@ export function useGame(): UseGameReturn {
   const [state, dispatch] = useReducer(reducer, undefined, makeInitialState);
 
   // -------------------------------------------------------------------------
-  // RAF-driven countdown — drift-free, pauses when not playing
+  // RAF-driven count-up clock — drift-free, pauses when not playing
   // -------------------------------------------------------------------------
   const rafRef = useRef<number | null>(null);
   const lastTimeRef = useRef<number | null>(null);
   const isPlaying = state.status === 'playing';
-  const timeLeftMsRef = useRef(state.timeLeftMs);
-  timeLeftMsRef.current = state.timeLeftMs;
 
   useEffect(() => {
     if (!isPlaying) {
@@ -279,15 +337,12 @@ export function useGame(): UseGameReturn {
       if (lastTimeRef.current === null) {
         lastTimeRef.current = now;
       }
-
       const delta = now - lastTimeRef.current;
       lastTimeRef.current = now;
 
-      // Skip the dispatch once time has run out — the GAME_OVER effect handles
-      // the transition; this avoids a couple of redundant TICKs per game over.
-      if (timeLeftMsRef.current > 0) {
-        dispatch({ type: 'TICK', deltaMs: delta });
-      }
+      // Reducer caps elapsed at the limit and flips to gameover; an extra TICK
+      // after that is a no-op, so no guard is needed here.
+      dispatch({ type: 'TICK', deltaMs: delta });
 
       rafRef.current = requestAnimationFrame(tick);
     }
@@ -304,57 +359,75 @@ export function useGame(): UseGameReturn {
   }, [isPlaying]);
 
   // -------------------------------------------------------------------------
-  // Transition to game over when time runs out
+  // High score lives only on the server. Load it for the current handle
+  // (debounced so typing a name on the start screen doesn't spam the API).
+  // `replace` sets it exactly — identity changed, so don't carry over a stale
+  // higher value from a different name.
   // -------------------------------------------------------------------------
+  const username = state.username;
   useEffect(() => {
-    if (state.status === 'playing' && state.timeLeftMs <= 0) {
-      dispatch({ type: 'GAME_OVER' });
-    }
-  }, [state.status, state.timeLeftMs]);
+    if (!username) return;
+    let cancelled = false;
+    const id = setTimeout(() => {
+      void fetchHighScore(username).then((remote) => {
+        if (!cancelled) dispatch({ type: 'SET_HIGH_SCORE', highScore: remote, replace: true });
+      });
+    }, 400);
+    return () => {
+      cancelled = true;
+      clearTimeout(id);
+    };
+  }, [username]);
 
   // -------------------------------------------------------------------------
-  // Persist high score to localStorage whenever it changes
-  // -------------------------------------------------------------------------
-  const highScore = state.highScore;
-  useEffect(() => {
-    setHighScore(highScore);
-  }, [highScore]);
-
-  // -------------------------------------------------------------------------
-  // Persist lifetime stats to localStorage whenever they change
+  // Persist stats / username / unlocked level to localStorage
   // -------------------------------------------------------------------------
   const lifetimeStats = state.lifetimeStats;
   useEffect(() => {
     setStats(lifetimeStats);
   }, [lifetimeStats]);
 
-  // -------------------------------------------------------------------------
-  // Persist the player's handle to localStorage whenever it changes
-  // -------------------------------------------------------------------------
-  const username = state.username;
   useEffect(() => {
     if (username) persistUsername(username);
   }, [username]);
 
+  const highestUnlockedLevel = state.highestUnlockedLevel;
+  useEffect(() => {
+    setHighestUnlockedLevel(highestUnlockedLevel);
+  }, [highestUnlockedLevel]);
+
   // -------------------------------------------------------------------------
-  // Submit per-level scores once per game-over episode (fire-and-forget).
-  // Refs read the latest values without re-firing the effect mid-run; the
-  // guard ensures exactly one submit per transition into 'gameover'.
+  // Submit the run once per transition into a terminal-ish state. Refs read
+  // the latest values without re-firing the effect mid-run; the guard ensures
+  // exactly one submit per entry into 'levelcomplete' / 'gameover'.
   // -------------------------------------------------------------------------
-  const submittedRef = useRef(false);
+  const lastSubmitRef = useRef<GameStatus | null>(null);
   const usernameRef = useRef(username);
   usernameRef.current = username;
-  const scoresByLevelRef = useRef(state.scoresByLevel);
-  scoresByLevelRef.current = state.scoresByLevel;
+  const timesByLevelRef = useRef(state.timesByLevel);
+  timesByLevelRef.current = state.timesByLevel;
+  const scoreRef = useRef(state.score);
+  scoreRef.current = state.score;
 
   useEffect(() => {
-    if (state.status === 'gameover') {
-      if (!submittedRef.current) {
-        submittedRef.current = true;
-        void submitScores(usernameRef.current, scoresByLevelRef.current);
+    if (state.status === 'levelcomplete' || state.status === 'gameover') {
+      if (lastSubmitRef.current !== state.status) {
+        lastSubmitRef.current = state.status;
+        // Submit the run, then re-read the high score from the server so a new
+        // record (here or on another session/device) is reflected. Ratchets up
+        // only — never lowers the number on screen mid-flow.
+        void (async () => {
+          const name = usernameRef.current;
+          await submitRun(name, {
+            timesByLevel: timesByLevelRef.current,
+            score: scoreRef.current,
+          });
+          const remote = await fetchHighScore(name);
+          dispatch({ type: 'SET_HIGH_SCORE', highScore: remote });
+        })();
       }
     } else {
-      submittedRef.current = false;
+      lastSubmitRef.current = null;
     }
   }, [state.status]);
 
@@ -370,8 +443,12 @@ export function useGame(): UseGameReturn {
   // -------------------------------------------------------------------------
   // Public actions
   // -------------------------------------------------------------------------
-  const start = useCallback(() => {
-    dispatch({ type: 'START' });
+  const start = useCallback((level: number = 1) => {
+    dispatch({ type: 'START', level });
+  }, []);
+
+  const nextLevel = useCallback(() => {
+    dispatch({ type: 'NEXT_LEVEL' });
   }, []);
 
   const reset = useCallback(() => {
@@ -384,19 +461,23 @@ export function useGame(): UseGameReturn {
 
   return {
     status: state.status,
-    map: state.map,
+    level: state.level,
+    map: state.maps[state.mapIndex],
+    mapIndex: state.mapIndex,
+    mapsPerLevel: MAPS_PER_LEVEL,
     cursor: state.cursor,
+    elapsedMs: state.elapsedMs,
+    limitMs: state.limitMs,
     score: state.score,
-    mapsCleared: state.mapsCleared,
-    timeLeftMs: state.timeLeftMs,
-    maxTimeMs: state.maxTimeMs,
-    lastResult: state.lastResult,
     highScore: state.highScore,
     runStartHighScore: state.runStartHighScore,
+    lastResult: state.lastResult,
     lifetimeStats: state.lifetimeStats,
     username: state.username,
-    scoresByLevel: state.scoresByLevel,
+    timesByLevel: state.timesByLevel,
+    highestUnlockedLevel: state.highestUnlockedLevel,
     start,
+    nextLevel,
     reset,
     setUsername,
   };

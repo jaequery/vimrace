@@ -26,20 +26,37 @@ vi.mock('@/game/vimEngine', () => ({
 }));
 
 vi.mock('@/game/scoring', () => ({
-  mapBonus: vi.fn(() => ({ points: 0, bonusTimeMs: 0, medal: 'none', used: 0, par: 5 })),
-  INITIAL_CLOCK_MS: 60_000,
-  levelForMapsCleared: vi.fn((n: number) => n + 1),
+  MAPS_PER_LEVEL: 3,
+  MAX_LEVEL: 20,
+  levelLimitMs: vi.fn(() => 30_000),
+  levelScore: vi.fn(() => ({
+    level: 1,
+    timeMs: 0,
+    limitMs: 30_000,
+    used: 0,
+    par: 5,
+    medal: 'none',
+    points: 0,
+  })),
+  seedForLevelMap: vi.fn((level: number, index: number) => level * 10 + index + 1),
 }));
 
 vi.mock('@/game/storage', () => ({
-  getHighScore: vi.fn(() => 0),
-  setHighScore: vi.fn(),
   getStats: vi.fn(() => ({ totalMapsCleared: 0, totalGamesPlayed: 0 })),
   setStats: vi.fn(),
   getUsername: vi.fn(() => ''),
   setUsername: vi.fn(),
+  getHighestUnlockedLevel: vi.fn(() => 1),
+  setHighestUnlockedLevel: vi.fn(),
   normalizeUsername: vi.fn((s: string) => s.trim()),
   MAX_USERNAME_LEN: 16,
+  MAX_LEVEL: 20,
+}));
+
+vi.mock('@/game/leaderboard', () => ({
+  submitRun: vi.fn(() => Promise.resolve(true)),
+  fetchLeaderboard: vi.fn(() => Promise.resolve({ boards: {}, overall: [], ranks: {} })),
+  fetchHighScore: vi.fn(() => Promise.resolve(0)),
 }));
 
 import App from './App';

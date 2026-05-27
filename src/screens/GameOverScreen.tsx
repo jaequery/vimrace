@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import type { UseGameReturn } from '@/game/useGame';
+import { formatTimeMs } from '@/game/format';
 import Button from '@/components/Button';
 import Panel from '@/components/Panel';
 import Leaderboard from '@/components/Leaderboard';
@@ -11,37 +12,39 @@ interface GameOverScreenProps {
 export default function GameOverScreen({ game }: GameOverScreenProps) {
   const {
     score,
-    mapsCleared,
+    level,
+    limitMs,
     highScore,
     runStartHighScore,
     lifetimeStats,
     username,
-    scoresByLevel,
+    timesByLevel,
     start,
     reset,
   } = game;
 
-  // Levels reached this run, highest first — the boards worth showing.
-  const reachedLevels = Object.keys(scoresByLevel)
-    .map(Number)
-    .filter((n) => Number.isInteger(n))
-    .sort((a, b) => b - a);
-  const boardLevels = reachedLevels.length > 0 ? reachedLevels : [1];
-  // A genuine new record beats the high score the run started with — not a tie
-  // (the reducer has already bumped `highScore` to the run's max by now).
+  // Boards worth showing: every level the player completed this run, plus the
+  // level they ran out of time on — highest first.
+  const levelSet = new Set<number>(
+    Object.keys(timesByLevel).map(Number).filter(Number.isInteger),
+  );
+  levelSet.add(level);
+  const boardLevels = [...levelSet].sort((a, b) => b - a);
+
+  // A genuine new record beats the high score the run started with — not a tie.
   const isNewHighScore = score > 0 && score > runStartHighScore;
 
-  // Enter or Space also restarts
+  // Enter / Space retries the level that ran out.
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
       if (e.key === 'Enter' || e.key === ' ') {
         e.preventDefault();
-        start();
+        start(level);
       }
     }
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
-  }, [start]);
+  }, [start, level]);
 
   return (
     <div
@@ -50,7 +53,7 @@ export default function GameOverScreen({ game }: GameOverScreenProps) {
       aria-label="Game over screen"
     >
       <h1 className="text-4xl font-bold tracking-widest uppercase text-[var(--color-timer-low)]">
-        Game Over
+        Time&apos;s Up!
       </h1>
 
       {username && (
@@ -72,12 +75,17 @@ export default function GameOverScreen({ game }: GameOverScreenProps) {
       <Panel>
         <dl className="flex flex-col gap-3 text-center font-mono">
           <div>
-            <dt className="text-xs text-[var(--color-text-muted)] uppercase tracking-widest">Final Score</dt>
-            <dd className="text-3xl font-bold text-[var(--color-goal)]">{score.toLocaleString()}</dd>
+            <dt className="text-xs text-[var(--color-text-muted)] uppercase tracking-widest">Ran Out On</dt>
+            <dd className="text-2xl font-bold text-[var(--color-timer-low)]">
+              Level {level}
+            </dd>
+            <dd className="text-xs text-[var(--color-text-dim)]">
+              limit was {formatTimeMs(limitMs)}s
+            </dd>
           </div>
           <div>
-            <dt className="text-xs text-[var(--color-text-muted)] uppercase tracking-widest">Maps Cleared</dt>
-            <dd className="text-2xl font-bold">{mapsCleared}</dd>
+            <dt className="text-xs text-[var(--color-text-muted)] uppercase tracking-widest">Score</dt>
+            <dd className="text-3xl font-bold text-[var(--color-goal)]">{score.toLocaleString()}</dd>
           </div>
           <div>
             <dt className="text-xs text-[var(--color-text-muted)] uppercase tracking-widest">High Score</dt>
@@ -89,28 +97,36 @@ export default function GameOverScreen({ game }: GameOverScreenProps) {
       <Leaderboard
         levels={boardLevels}
         currentUsername={username}
-        scoresByLevel={scoresByLevel}
+        timesByLevel={timesByLevel}
+        showOverall
       />
 
       <div className="flex flex-col items-center gap-3">
-        <Button onClick={start} variant="primary">
-          Play Again
+        <Button onClick={() => start(level)} variant="primary">
+          Retry Level {level}
         </Button>
-        <button
-          onClick={reset}
-          className="text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] focus-visible:ring-2 focus-visible:ring-[var(--color-focus)] focus-visible:outline-none rounded"
-        >
-          Return to Start
-        </button>
+        <div className="flex items-center gap-4">
+          <button
+            onClick={() => start(1)}
+            className="text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] focus-visible:ring-2 focus-visible:ring-[var(--color-focus)] focus-visible:outline-none rounded"
+          >
+            Play from Level 1
+          </button>
+          <button
+            onClick={reset}
+            className="text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] focus-visible:ring-2 focus-visible:ring-[var(--color-focus)] focus-visible:outline-none rounded"
+          >
+            Return to Start
+          </button>
+        </div>
       </div>
 
       <p className="text-xs text-[var(--color-text-dim)] font-mono">
-        Lifetime: {lifetimeStats.totalMapsCleared} maps cleared &middot; {lifetimeStats.totalGamesPlayed} games
+        Lifetime: {lifetimeStats.totalMapsCleared} mazes cleared &middot; {lifetimeStats.totalGamesPlayed} games
       </p>
 
       <p className="text-xs text-[var(--color-text-muted)]">
-        Press <kbd className="px-1 border border-[var(--color-text-dim)] rounded">Enter</kbd> or{' '}
-        <kbd className="px-1 border border-[var(--color-text-dim)] rounded">Space</kbd> to play again
+        Press <kbd className="px-1 border border-[var(--color-text-dim)] rounded">Enter</kbd> to retry level {level}
       </p>
     </div>
   );
