@@ -11,9 +11,11 @@ import Leaderboard from '@/components/Leaderboard';
 interface StartScreenProps {
   game: UseGameReturn;
   reducedMotion: boolean;
+  /** open the insert-mode practice subsystem */
+  onOpenPractice: () => void;
 }
 
-export default function StartScreen({ game, reducedMotion }: StartScreenProps) {
+export default function StartScreen({ game, reducedMotion, onOpenPractice }: StartScreenProps) {
   const { start, map, cursor, highScore, username, setUsername, highestUnlockedLevel } = game;
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -38,7 +40,10 @@ export default function StartScreen({ game, reducedMotion }: StartScreenProps) {
   // so the player can type (including spaces) freely.
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
-      if (document.activeElement === inputRef.current) return;
+      const active = document.activeElement;
+      // Don't steal typing in the name field, and let a focused button (e.g.
+      // "Practice Insert Mode") handle its own Enter/Space activation.
+      if (active === inputRef.current || active instanceof HTMLButtonElement) return;
       if (e.key === 'Enter' || e.key === ' ') {
         e.preventDefault();
         handleStart();
@@ -164,6 +169,11 @@ export default function StartScreen({ game, reducedMotion }: StartScreenProps) {
           'Enter a name to begin'
         )}
       </p>
+
+      {/* Insert-mode practice — no name required; learn the i/a/o/I/A/O commands. */}
+      <Button onClick={onOpenPractice} variant="secondary">
+        Practice Insert Mode
+      </Button>
 
       <Leaderboard
         levels={[selectedLevel]}
