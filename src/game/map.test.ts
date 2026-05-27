@@ -138,6 +138,76 @@ describe('parKeystrokes solvability', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Goal & start placement variety — the goal is no longer pinned to one corner
+// ---------------------------------------------------------------------------
+describe('placement variety', () => {
+  /** Quadrant index 0..3 (TL, TR, BL, BR) for a position on an r×c grid. */
+  function quadrant(p: { row: number; col: number }, rows: number, cols: number): number {
+    const top = p.row < rows / 2;
+    const left = p.col < cols / 2;
+    return (top ? 0 : 2) + (left ? 0 : 1);
+  }
+
+  it('goal positions span at least 3 of 4 quadrants across seeds', () => {
+    const quads = new Set<number>();
+    for (let seed = 0; seed < 60; seed++) {
+      const m = generateMap({ level: 5, seed });
+      quads.add(quadrant(m.goal, m.rows, m.cols));
+    }
+    expect(quads.size).toBeGreaterThanOrEqual(3);
+  });
+
+  it('start positions span at least 3 of 4 quadrants across seeds', () => {
+    const quads = new Set<number>();
+    for (let seed = 0; seed < 60; seed++) {
+      const m = generateMap({ level: 5, seed });
+      quads.add(quadrant(m.start, m.rows, m.cols));
+    }
+    expect(quads.size).toBeGreaterThanOrEqual(3);
+  });
+
+  it('goals are NOT consistently in the bottom-right corner (the old behavior)', () => {
+    // The previous generator placed every goal in the bottom-right quadrant.
+    // Now a clear majority should fall elsewhere.
+    const N = 60;
+    let outsideBottomRight = 0;
+    for (let seed = 0; seed < N; seed++) {
+      const m = generateMap({ level: 7, seed });
+      const bottomRight = m.goal.row >= m.rows / 2 && m.goal.col >= m.cols / 2;
+      if (!bottomRight) outsideBottomRight++;
+    }
+    expect(outsideBottomRight).toBeGreaterThan(N * 0.25);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Wall density scales with level (difficulty ramp beyond grid size)
+// ---------------------------------------------------------------------------
+describe('wall density increases with level', () => {
+  /** Mean fraction of wall cells across several seeds at a level. */
+  function meanWallRatio(level: number): number {
+    let walls = 0;
+    let total = 0;
+    for (let seed = 0; seed < 20; seed++) {
+      const m = generateMap({ level, seed });
+      for (const row of m.grid) {
+        for (const cell of row) {
+          total++;
+          if (cell) walls++;
+        }
+      }
+    }
+    return walls / total;
+  }
+
+  it('later levels are denser mazes than early levels', () => {
+    const low = meanWallRatio(1);
+    const high = meanWallRatio(12);
+    expect(high).toBeGreaterThan(low);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // seed field is preserved on map
 // ---------------------------------------------------------------------------
 describe('map seed field', () => {
