@@ -1,29 +1,36 @@
 import { useEffect } from 'react';
 import type { UseGameReturn } from '@/game/useGame';
+import type { MultiplayerView } from '@/game/multiplayer';
 import { MAX_LEVEL } from '@/game/scoring';
 import Button from '@/components/Button';
 import Leaderboard from '@/components/Leaderboard';
+import OpponentsPanel from '@/components/OpponentsPanel';
 
 interface LevelCompleteScreenProps {
   game: UseGameReturn;
+  /** present when the level was cleared inside a multiplayer room */
+  multiplayer?: MultiplayerView | null;
 }
 
-export default function LevelCompleteScreen({ game }: LevelCompleteScreenProps) {
-  const { level, username, timesByLevel, nextLevel, reset } = game;
+export default function LevelCompleteScreen({ game, multiplayer }: LevelCompleteScreenProps) {
+  const { level, username, timesByLevel, mapsPerLevel, nextLevel, reset } = game;
 
   const isFinalLevel = level >= MAX_LEVEL;
+  // In a room each player races a single level; "next level" doesn't apply.
+  const inRoom = !!multiplayer;
 
-  // Enter / Space advances to the next level (or, on the final level, does nothing).
+  // Enter / Space advances to the next level (single-player only; in a room the
+  // race is over and Enter does nothing).
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
       if (e.key === 'Enter' || e.key === ' ') {
         e.preventDefault();
-        if (!isFinalLevel) nextLevel();
+        if (!isFinalLevel && !inRoom) nextLevel();
       }
     }
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
-  }, [nextLevel, isFinalLevel]);
+  }, [nextLevel, isFinalLevel, inRoom]);
 
   return (
     <div
@@ -32,13 +39,25 @@ export default function LevelCompleteScreen({ game }: LevelCompleteScreenProps) 
       aria-label="Level complete screen"
     >
       <h1 className="text-4xl font-bold tracking-widest uppercase text-[var(--color-goal)] text-center">
-        {isFinalLevel ? 'VimRace Complete!' : `Level ${level} Clear!`}
+        {inRoom ? `Level ${level} Finished!` : isFinalLevel ? 'VimRace Complete!' : `Level ${level} Clear!`}
       </h1>
 
       {username && (
         <p className="text-sm text-[var(--color-text-muted)] tracking-widest uppercase">
           {username}
         </p>
+      )}
+
+      {/* In a room, the race standings are the headline; the all-time board sits
+          below it. Solo, just the all-time board. */}
+      {inRoom && multiplayer && (
+        <OpponentsPanel
+          players={multiplayer.players}
+          playerId={multiplayer.playerId}
+          mapsPerLevel={mapsPerLevel}
+          level={level}
+          title="Final Standings"
+        />
       )}
 
       <Leaderboard
@@ -49,7 +68,11 @@ export default function LevelCompleteScreen({ game }: LevelCompleteScreenProps) 
       />
 
       <div className="flex flex-col items-center gap-3">
-        {!isFinalLevel ? (
+        {inRoom ? (
+          <Button onClick={() => multiplayer?.leave()} variant="primary">
+            Leave Race
+          </Button>
+        ) : !isFinalLevel ? (
           <Button onClick={nextLevel} variant="primary">
             Next Level →
           </Button>
@@ -58,15 +81,17 @@ export default function LevelCompleteScreen({ game }: LevelCompleteScreenProps) 
             You cleared every level. Legendary.
           </p>
         )}
-        <button
-          onClick={reset}
-          className="text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] focus-visible:ring-2 focus-visible:ring-[var(--color-focus)] focus-visible:outline-none rounded"
-        >
-          Return to Start
-        </button>
+        {!inRoom && (
+          <button
+            onClick={reset}
+            className="text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] focus-visible:ring-2 focus-visible:ring-[var(--color-focus)] focus-visible:outline-none rounded"
+          >
+            Return to Start
+          </button>
+        )}
       </div>
 
-      {!isFinalLevel && (
+      {!isFinalLevel && !inRoom && (
         <p className="text-xs text-[var(--color-text-muted)]">
           Press <kbd className="px-1 border border-[var(--color-text-dim)] rounded">Enter</kbd> for the next level
         </p>

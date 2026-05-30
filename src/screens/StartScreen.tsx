@@ -11,9 +11,11 @@ import Leaderboard from '@/components/Leaderboard';
 interface StartScreenProps {
   game: UseGameReturn;
   reducedMotion: boolean;
+  /** open the multiplayer lobby ("Play with friends") */
+  onMultiplayer?: () => void;
 }
 
-export default function StartScreen({ game, reducedMotion }: StartScreenProps) {
+export default function StartScreen({ game, reducedMotion, onMultiplayer }: StartScreenProps) {
   const { start, map, cursor, highScore, username, setUsername, highestUnlockedLevel } = game;
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -154,9 +156,16 @@ export default function StartScreen({ game, reducedMotion }: StartScreenProps) {
         />
       </div>
 
-      <Button onClick={handleStart} variant="primary" disabled={!canStart}>
-        Start — Level {selectedLevel}
-      </Button>
+      <div className="flex flex-col items-center gap-3">
+        <Button onClick={handleStart} variant="primary" disabled={!canStart}>
+          Start — Level {selectedLevel}
+        </Button>
+        {onMultiplayer && (
+          <Button onClick={onMultiplayer} variant="secondary">
+            Play with Friends
+          </Button>
+        )}
+      </div>
 
       <p className="text-xs text-[var(--color-text-muted)]">
         {canStart ? (

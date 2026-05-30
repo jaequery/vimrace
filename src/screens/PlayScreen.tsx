@@ -1,15 +1,19 @@
 import type { UseGameReturn } from '@/game/useGame';
+import type { MultiplayerView } from '@/game/multiplayer';
 import Grid from '@/components/Grid';
 import Hud from '@/components/Hud';
 import KeyHints from '@/components/KeyHints';
 import RivalsPanel from '@/components/RivalsPanel';
+import OpponentsPanel from '@/components/OpponentsPanel';
 
 interface PlayScreenProps {
   game: UseGameReturn;
   reducedMotion: boolean;
+  /** present while racing in a multiplayer room — swaps rivals for live opponents */
+  multiplayer?: MultiplayerView | null;
 }
 
-export default function PlayScreen({ game, reducedMotion }: PlayScreenProps) {
+export default function PlayScreen({ game, reducedMotion, multiplayer }: PlayScreenProps) {
   const { map, cursor, score, level, mapIndex, mapsPerLevel, elapsedMs, limitMs, username } = game;
 
   return (
@@ -37,10 +41,20 @@ export default function PlayScreen({ game, reducedMotion }: PlayScreenProps) {
         score={score}
       />
 
-      {/* Maze with the live rivals standings alongside — race the leaders. */}
+      {/* Maze with the live standings alongside. In a room we race the actual
+          opponents in real time; solo we race the level's fastest-times board. */}
       <div className="w-full flex-1 flex flex-wrap items-center justify-center gap-6 px-4">
         <Grid map={map} cursor={cursor} reducedMotion={reducedMotion} />
-        <RivalsPanel level={level} elapsedMs={elapsedMs} currentUsername={username} />
+        {multiplayer ? (
+          <OpponentsPanel
+            players={multiplayer.players}
+            playerId={multiplayer.playerId}
+            mapsPerLevel={mapsPerLevel}
+            level={level}
+          />
+        ) : (
+          <RivalsPanel level={level} elapsedMs={elapsedMs} currentUsername={username} />
+        )}
       </div>
 
       <div className="pb-4 px-4">

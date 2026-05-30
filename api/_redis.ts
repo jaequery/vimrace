@@ -170,3 +170,294 @@ export async function readOverallBoard(): Promise<ScoreEntry[]> {
   }
   return entries;
 }
+
+// ===========================================================================
+// Multiplayer "race rooms"
+// ===========================================================================
+//
+// A room lets several players race the *same* deterministic maze sequence for a
+// level at the same time. Because maps are seeded per (level, index) there is no
+// geometry to sync — only each player's compact live progress. The whole feature
+// rides on plain HTTP request/response against `api/room.ts`; clients poll a
+// snapshot and heartbeat their own state. Two keys back a room:
+//
+//   vimrace:room:{code}          — hash of room metadata (host, level, status…)
+//   vimrace:room:{code}:players  — hash of playerId → JSON live state
+//
+// Both carry a short TTL refreshed on every write, so abandoned rooms clean
+// themselves up. Stale players (no heartbeat within the window) are dropped on
+// read; the TTL eventually reaps the room entirely.
+
+/** How long an idle room survives before Redis reaps it (seconds). */
+export const ROOM_TTL_SECONDS = 30 * 60;
+/** A player not seen within this window is treated as gone (ms). */
+export const ROOM_PLAYER_STALE_MS = 15_000;
+/** Per-room player cap — bounds Redis write volume and keeps the roster legible. */
+export const MAX_ROOM_PLAYERS = 8;
+/** Length of a generated room code. */
+export const ROOM_CODE_LEN = 4;
+/** Cap on a stored playerId length. */
+export const MAX_PLAYER_ID_LEN = 64;
+/**
+ * Room-code alphabet — uppercase letters + digits, minus the visually
+ * ambiguous `I`, `O`, `0`, `1` so codes are easy to read aloud and type.
+ */
+const ROOM_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+
+export type RoomStatus = 'lobby' | 'racing';
+
+/** Server-side room record (the source of truth in Redis). */
+export interface RoomRecord {
+  code: string;
+  /** playerId of the host (the only one allowed to start the race) */
+  host: string;
+  level: number;
+  status: RoomStatus;
+  /** epoch ms the race was started, or null while still in the lobby */
+  startedAt: number | null;
+  createdAt: number;
+}
+
+/** One player's live state within a room. */
+export interface RoomPlayer {
+  playerId: string;
+  username: string;
+  /** which maze within the level the player is on (0-based) */
+  mapIndex: number;
+  /** overall level progress, 0..1 */
+  progress: number;
+  /** true once the player has finished (cleared the level) or busted out */
+  finished: boolean;
+  /** the player's final level time (ms) if they cleared it, else null */
+  finishMs: number | null;
+  /** server-stamped epoch ms of the last heartbeat (drives staleness) */
+  lastSeen: number;
+}
+
+/** Hash key for a room's metadata. */
+export function roomKey(code: string): string {
+  return `vimrace:room:${code}`;
+}
+
+/** Hash key for a room's player states. */
+export function roomPlayersKey(code: string): string {
+  return `vimrace:room:${code}:players`;
+}
+
+/**
+ * Validate + normalize a room code: uppercased, must be exactly `ROOM_CODE_LEN`
+ * characters drawn from the room alphabet. Returns null if it can't be salvaged.
+ */
+export function normalizeRoomCode(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null;
+  const up = raw.trim().toUpperCase();
+  if (up.length !== ROOM_CODE_LEN) return null;
+  for (const ch of up) {
+    if (!ROOM_CODE_ALPHABET.includes(ch)) return null;
+  }
+  return up;
+}
+
+/** Generate a fresh random room code from the unambiguous alphabet. */
+export function generateRoomCode(): string {
+  let code = '';
+  for (let i = 0; i < ROOM_CODE_LEN; i++) {
+    const idx = Math.floor(Math.random() * ROOM_CODE_ALPHABET.length);
+    code += ROOM_CODE_ALPHABET[idx];
+  }
+  return code;
+}
+
+/**
+ * Validate a client-supplied playerId: a non-empty string with control
+ * characters stripped, capped in length. Returns null if nothing usable remains.
+ */
+export function normalizePlayerId(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null;
+  let stripped = '';
+  for (const ch of raw) {
+    if (!isControlChar(ch.codePointAt(0) ?? 0)) stripped += ch;
+  }
+  const cleaned = stripped.trim().slice(0, MAX_PLAYER_ID_LEN);
+  return cleaned.length === 0 ? null : cleaned;
+}
+
+/** Clamp a progress value into [0, 1]; non-numbers become 0. */
+export function clampProgress(raw: unknown): number {
+  const n = typeof raw === 'string' ? Number(raw) : raw;
+  if (typeof n !== 'number' || !Number.isFinite(n)) return 0;
+  return Math.min(1, Math.max(0, n));
+}
+
+/** Normalize a maze index: a non-negative integer, defensively capped. */
+export function normalizeMapIndex(raw: unknown): number {
+  const n = typeof raw === 'string' ? Number(raw) : raw;
+  if (typeof n !== 'number' || !Number.isFinite(n)) return 0;
+  return Math.min(99, Math.max(0, Math.floor(n)));
+}
+
+/** Map a server record to the wire shape clients consume (drops createdAt). */
+export function roomToWire(room: RoomRecord): Omit<RoomRecord, 'createdAt'> {
+  return {
+    code: room.code,
+    host: room.host,
+    level: room.level,
+    status: room.status,
+    startedAt: room.startedAt,
+  };
+}
+
+/** Read a room's metadata, or null if it no longer exists. */
+export async function readRoom(code: string): Promise<RoomRecord | null> {
+  const redis = getRedis();
+  const h = (await redis.hgetall(roomKey(code))) as Record<string, unknown> | null;
+  if (!h || Object.keys(h).length === 0) return null;
+  const host = typeof h.host === 'string' ? h.host : String(h.host ?? '');
+  if (!host) return null;
+  const level = normalizeLevel(h.level) ?? 1;
+  const status: RoomStatus = h.status === 'racing' ? 'racing' : 'lobby';
+  const startedRaw = h.startedAt;
+  const startedNum =
+    startedRaw === null || startedRaw === undefined || startedRaw === ''
+      ? null
+      : Number(startedRaw);
+  const startedAt = typeof startedNum === 'number' && Number.isFinite(startedNum)
+    ? startedNum
+    : null;
+  const createdAt = Number(h.createdAt);
+  return {
+    code,
+    host,
+    level,
+    status,
+    startedAt,
+    createdAt: Number.isFinite(createdAt) ? createdAt : 0,
+  };
+}
+
+/** Persist a room's metadata and refresh its TTL. */
+export async function writeRoom(room: RoomRecord): Promise<void> {
+  const redis = getRedis();
+  await redis.hset(roomKey(room.code), {
+    host: room.host,
+    level: room.level,
+    status: room.status,
+    startedAt: room.startedAt ?? '',
+    createdAt: room.createdAt,
+  });
+  await touchRoom(room.code);
+}
+
+/** Refresh the TTL on both of a room's keys (called on every write). */
+export async function touchRoom(code: string): Promise<void> {
+  const redis = getRedis();
+  await Promise.all([
+    redis.expire(roomKey(code), ROOM_TTL_SECONDS),
+    redis.expire(roomPlayersKey(code), ROOM_TTL_SECONDS),
+  ]);
+}
+
+/**
+ * Create a brand-new room with a unique code, retrying on the (rare) chance a
+ * generated code already exists. Writes the host's room record and returns it.
+ */
+export async function createUniqueRoom(
+  host: string,
+  level: number,
+  now: number,
+): Promise<RoomRecord> {
+  const redis = getRedis();
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const code = generateRoomCode();
+    const exists = await redis.exists(roomKey(code));
+    if (exists) continue;
+    const room: RoomRecord = {
+      code,
+      host,
+      level,
+      status: 'lobby',
+      startedAt: null,
+      createdAt: now,
+    };
+    await writeRoom(room);
+    return room;
+  }
+  throw new Error('Could not allocate a unique room code');
+}
+
+/** Parse one stored player field; tolerates both object and JSON-string values. */
+function parsePlayer(playerId: string, raw: unknown): RoomPlayer | null {
+  let obj: Record<string, unknown> | null = null;
+  if (raw && typeof raw === 'object') {
+    obj = raw as Record<string, unknown>;
+  } else if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object') obj = parsed as Record<string, unknown>;
+    } catch {
+      return null;
+    }
+  }
+  if (!obj) return null;
+  const username = typeof obj.username === 'string' ? obj.username : '';
+  const lastSeen = Number(obj.lastSeen);
+  if (!username || !Number.isFinite(lastSeen)) return null;
+  const finishRaw = obj.finishMs;
+  const finishMs =
+    typeof finishRaw === 'number' && Number.isFinite(finishRaw) ? finishRaw : null;
+  return {
+    playerId,
+    username,
+    mapIndex: normalizeMapIndex(obj.mapIndex),
+    progress: clampProgress(obj.progress),
+    finished: obj.finished === true,
+    finishMs,
+    lastSeen,
+  };
+}
+
+/**
+ * Upsert one player's live state (last-write-wins) and refresh the room TTL.
+ * `lastSeen` is stamped here, server-side, so staleness can't be spoofed.
+ */
+export async function upsertPlayer(
+  code: string,
+  player: Omit<RoomPlayer, 'lastSeen'>,
+  now: number,
+): Promise<void> {
+  const redis = getRedis();
+  const record: RoomPlayer = { ...player, lastSeen: now };
+  await redis.hset(roomPlayersKey(code), {
+    [player.playerId]: JSON.stringify(record),
+  });
+  await touchRoom(code);
+}
+
+/**
+ * Read every live player in a room, dropping any whose last heartbeat is older
+ * than `ROOM_PLAYER_STALE_MS` (they've disconnected). Sorted for a stable roster:
+ * finishers first by time, then the rest by progress (furthest along first).
+ */
+export async function readPlayers(code: string, now: number): Promise<RoomPlayer[]> {
+  const redis = getRedis();
+  const h = (await redis.hgetall(roomPlayersKey(code))) as Record<string, unknown> | null;
+  if (!h) return [];
+  const players: RoomPlayer[] = [];
+  for (const [playerId, raw] of Object.entries(h)) {
+    const p = parsePlayer(playerId, raw);
+    if (p && now - p.lastSeen <= ROOM_PLAYER_STALE_MS) players.push(p);
+  }
+  return sortPlayers(players);
+}
+
+/** Standings order: finishers (fastest first) above everyone still racing. */
+export function sortPlayers(players: RoomPlayer[]): RoomPlayer[] {
+  return [...players].sort((a, b) => {
+    const aDone = a.finished && a.finishMs !== null;
+    const bDone = b.finished && b.finishMs !== null;
+    if (aDone && bDone) return (a.finishMs as number) - (b.finishMs as number);
+    if (aDone !== bDone) return aDone ? -1 : 1;
+    // Neither has a recorded finish time → furthest progress ranks higher.
+    return b.progress - a.progress;
+  });
+}
