@@ -1,11 +1,14 @@
 # VimRace ⚡
 
-**Learn Vim motions by racing the clock.** VimRace is a single-player,
-pixel-art arcade game: pilot your cursor through a **maze** to the ⚑ flag using
-real Vim motions before the countdown runs out. Walls block you — but the Vim
-"leap" motions let you hop right over them. Clearing mazes banks score and buys
-you more time, and the fewer keystrokes you use, the bigger the reward. It's a
-fast, replayable way to build Vim muscle memory.
+**Learn Vim motions by racing the clock.** VimRace is a pixel-art arcade game:
+pilot your cursor through a **maze** to the ⚑ flag using real Vim motions before
+the countdown runs out. Walls block you — but the Vim "leap" motions let you hop
+right over them. Clearing mazes banks score and buys you more time, and the
+fewer keystrokes you use, the bigger the reward. It's a fast, replayable way to
+build Vim muscle memory.
+
+Play solo against the global leaderboard, or **race friends head-to-head** in a
+shared room — same mazes, same clock, live progress, fastest finish wins.
 
 Each level ramps the challenge: mazes grow larger **and denser**, the clock
 tightens, and the ⚑ flag turns up in a different, unpredictable spot every
@@ -69,16 +72,19 @@ src/
 │  ├─ scoring.ts      #   score, bonus time, medals, difficulty ramp
 │  ├─ storage.ts      #   localStorage high score + lifetime stats
 │  ├─ useGame.ts      #   React state machine + drift-free rAF clock
-│  └─ useKeyboard.ts  #   scoped keydown → Motion handler
-│  └─ leaderboard.ts  #   failure-tolerant client for the /api endpoints
-├─ components/        # presentational pixel-art UI (Grid, Hud, Leaderboard…)
-├─ screens/           # Start / Play / GameOver containers
-└─ App.tsx            # routes by game status
+│  ├─ useKeyboard.ts  #   scoped keydown → Motion handler
+│  ├─ leaderboard.ts  #   failure-tolerant client for the /api endpoints
+│  ├─ multiplayer.ts  #   failure-tolerant race-room client + progress helper
+│  └─ useMultiplayer.ts #  room connection: playerId, poll loop, heartbeat
+├─ components/        # presentational pixel-art UI (Grid, Hud, OpponentsPanel…)
+├─ screens/           # Start / Play / GameOver / MultiplayerLobby containers
+└─ App.tsx            # routes by game status; bridges live progress to the room
 
-api/                  # Vercel serverless functions (the leaderboard backend)
-├─ _redis.ts          #   shared Upstash client + validation + ZSET helpers
+api/                  # Vercel serverless functions (leaderboard + rooms backend)
+├─ _redis.ts          #   shared Upstash client + validation + ZSET/room helpers
 ├─ score.ts           #   POST: record a player's best score per level
-└─ leaderboard.ts     #   GET:  top 10 per level
+├─ leaderboard.ts     #   GET:  top 10 per level
+└─ room.ts            #   multiplayer: create / join / state / start / snapshot
 ```
 
 ## Development
@@ -115,6 +121,39 @@ Credentials come from the **Vercel ↔ Upstash** integration, which injects
 `KV_REST_API_URL` and `KV_REST_API_TOKEN` into the deployment automatically —
 no extra config needed in production. For local `vercel dev`, `vercel env pull`
 writes them to `.env.local` (gitignored).
+
+## Multiplayer (race rooms)
+
+From the start screen, **Play with Friends** opens the lobby. One player
+**creates** a room and shares the 4-character code; others **join** by code.
+The host picks the level and starts the race — everyone then plays the *same*
+mazes at the same time, sees each other's live progress in the side panel, and
+gets a shared **standings** screen when they finish (fastest time wins).
+
+**Architecture.** VimRace mazes are deterministic per `(level, mapIndex)`, so a
+room never needs to sync map geometry — only each player's compact progress.
+That lets multiplayer ride the existing serverless + Redis stack with **no
+WebSocket server**:
+
+- **Connection model** — plain HTTP. A "connection" is a client-side poll loop
+  (~800 ms) that heartbeats your own state and pulls a roster snapshot, exactly
+  mirroring the failure-tolerant leaderboard client.
+- **Sync strategy** — each player publishes `{ mapIndex, progress, finished,
+  finishMs }` (last-write-wins); the snapshot returns everyone's, giving a
+  near-realtime "ghost" view. Map layouts are never sent. State stays
+  client-authoritative — the same trust model as the leaderboard.
+- **Storage** — a `vimrace:room:{code}` metadata hash plus a
+  `vimrace:room:{code}:players` hash, both on a ~30-minute TTL refreshed on
+  activity, so abandoned rooms self-clean. Disconnected players (no heartbeat
+  within ~15 s) drop off the roster.
+- **Endpoint** — one multiplexed function, `api/room.ts`:
+  `POST {action: create | join | state | start}` and `GET ?code=XXXX`.
+
+If `/api/room` is unreachable the lobby simply reports it and single-player is
+completely unaffected. (Like the leaderboard, the room functions don't run under
+plain `pnpm dev` unless you wire them in — use `vercel dev`, or the bundled
+`vite-dev-api.ts` plugin, which serves `/api/room` against your `.env.local`
+Upstash credentials.)
 
 ## License
 

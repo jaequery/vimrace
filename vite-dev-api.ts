@@ -52,6 +52,8 @@ export function devApi(): Plugin {
             ? '/api/leaderboard.ts'
             : pathname === '/api/highscore'
             ? '/api/highscore.ts'
+            : pathname === '/api/room'
+            ? '/api/room.ts'
             : null;
         if (!route) return next();
 

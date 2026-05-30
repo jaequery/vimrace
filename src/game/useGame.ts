@@ -66,7 +66,7 @@ export interface GameState {
 // ---------------------------------------------------------------------------
 
 type Action =
-  | { type: 'START'; level: number }
+  | { type: 'START'; level: number; ignoreUnlock?: boolean }
   | { type: 'NEXT_LEVEL' }
   | { type: 'APPLY_MOTION'; motion: Motion }
   | { type: 'TICK'; deltaMs: number }
@@ -122,11 +122,13 @@ function makeInitialState(): GameState {
 function reducer(state: GameState, action: Action): GameState {
   switch (action.type) {
     case 'START': {
-      // Begin a *fresh run* at the chosen level (clamped to what's unlocked).
-      const startLevel = Math.min(
-        Math.max(1, Math.floor(action.level)),
-        state.highestUnlockedLevel,
-      );
+      // Begin a *fresh run* at the chosen level. Normally clamped to what's
+      // unlocked; multiplayer passes `ignoreUnlock` so every racer starts on the
+      // host's level (still clamped to the valid [1, MAX_LEVEL] range).
+      const requested = Math.min(Math.max(1, Math.floor(action.level)), MAX_LEVEL);
+      const startLevel = action.ignoreUnlock
+        ? requested
+        : Math.min(requested, state.highestUnlockedLevel);
       const { maps, parTotal, limitMs } = buildLevel(startLevel);
       return {
         ...state,
@@ -305,8 +307,12 @@ export interface UseGameReturn {
   /** best completion time reached at each level during the current run */
   timesByLevel: TimesByLevel;
   highestUnlockedLevel: number;
-  /** start a fresh run at the given level (defaults to level 1) */
-  start: (level?: number) => void;
+  /**
+   * Start a fresh run at the given level (defaults to level 1). Pass
+   * `{ ignoreUnlock: true }` to bypass the unlock clamp — used by multiplayer so
+   * every racer starts on the host's chosen level.
+   */
+  start: (level?: number, opts?: { ignoreUnlock?: boolean }) => void;
   /** continue the current run into the next level (from a level-complete screen) */
   nextLevel: () => void;
   reset: () => void;
@@ -443,9 +449,12 @@ export function useGame(): UseGameReturn {
   // -------------------------------------------------------------------------
   // Public actions
   // -------------------------------------------------------------------------
-  const start = useCallback((level: number = 1) => {
-    dispatch({ type: 'START', level });
-  }, []);
+  const start = useCallback(
+    (level: number = 1, opts?: { ignoreUnlock?: boolean }) => {
+      dispatch({ type: 'START', level, ignoreUnlock: opts?.ignoreUnlock });
+    },
+    [],
+  );
 
   const nextLevel = useCallback(() => {
     dispatch({ type: 'NEXT_LEVEL' });
