@@ -100,15 +100,20 @@ export const MOTION_KEYCAP: Record<Motion, string> = {
  *
  * h/j/k/l step one cell and are blocked by walls. w/b/e/0/$ leap over walls
  * (always within the current row) and land on open floor.
+ *
+ * Labels use Vim's "word" vocabulary (w/b/e = next/prev word, word end) while
+ * the engine docs in `vimEngine.ts` describe the same behavior with the
+ * "corridor" maze analog — the split is deliberate (player mnemonic vs. engine
+ * mechanic), not drift: a floor corridor is the word, a wall-gap the whitespace.
  */
 export const MOTION_HELP: Record<Motion, string> = {
   h: 'left',
   j: 'down',
   k: 'up',
   l: 'right',
-  w: 'hop wall →',
-  b: '← hop wall',
-  e: 'hop to end',
+  w: 'next word',
+  b: 'prev word',
+  e: 'word end',
   '0': 'row start',
   $: 'row end',
   gg: 'hop to top',
